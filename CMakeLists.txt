@@ -11,13 +11,22 @@ include(GNUInstallDirs)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
-set_source_files_properties(qml/Main.qml
-    PROPERTIES
-        QT_RESOURCE_ALIAS Main.qml
-)
+if(QT_KNOWN_POLICY_QTP0004)
+    qt_policy(SET QTP0004 NEW)
+endif()
+
+set_source_files_properties(qml/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
+set_source_files_properties(qml/components/InfoPanel.qml PROPERTIES QT_RESOURCE_ALIAS components/InfoPanel.qml)
+set_source_files_properties(qml/components/LibraryPanel.qml PROPERTIES QT_RESOURCE_ALIAS components/LibraryPanel.qml)
+set_source_files_properties(qml/components/PlaybackBar.qml PROPERTIES QT_RESOURCE_ALIAS components/PlaybackBar.qml)
+set_source_files_properties(qml/pages/PlayerPage.qml PROPERTIES QT_RESOURCE_ALIAS pages/PlayerPage.qml)
 
 qt_add_executable(apppickle
     src/main.cpp
+    src/app/AppController.cpp
+    src/app/AppController.h
+    src/media/MediaLibraryModel.cpp
+    src/media/MediaLibraryModel.h
 )
 
 qt_add_qml_module(apppickle
@@ -25,6 +34,10 @@ qt_add_qml_module(apppickle
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/components/InfoPanel.qml
+        qml/components/LibraryPanel.qml
+        qml/components/PlaybackBar.qml
+        qml/pages/PlayerPage.qml
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -43,6 +56,10 @@ target_link_libraries(apppickle
         Qt6::Quick
         Qt6::Multimedia
         Qt6::Sql
+)
+
+target_include_directories(apppickle
+    PRIVATE src
 )
 
 install(TARGETS apppickle
