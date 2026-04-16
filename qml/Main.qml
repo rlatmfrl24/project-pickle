@@ -103,6 +103,8 @@ ApplicationWindow {
                 spacing: 14
 
                 Pages.PlayerPage {
+                    id: playerPage
+
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     media: window.appController.selectedMedia
@@ -114,6 +116,8 @@ ApplicationWindow {
                     Layout.preferredHeight: 96
                     media: window.appController.selectedMedia
                     playbackController: window.playbackController
+                    mediaPlayer: playerPage.mediaPlayer
+                    audioOutput: playerPage.audioOutput
                 }
             }
 
