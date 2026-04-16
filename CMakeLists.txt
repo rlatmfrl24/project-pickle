@@ -2,20 +2,29 @@ cmake_minimum_required(VERSION 3.16)
 
 project(pickle VERSION 0.1 LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick)
+find_package(Qt6 REQUIRED COMPONENTS Quick Multimedia Sql)
 
-qt_standard_project_setup(REQUIRES 6.10)
+include(GNUInstallDirs)
+
+qt_standard_project_setup(REQUIRES 6.5)
+
+set_source_files_properties(qml/Main.qml
+    PROPERTIES
+        QT_RESOURCE_ALIAS Main.qml
+)
 
 qt_add_executable(apppickle
-    main.cpp
+    src/main.cpp
 )
 
 qt_add_qml_module(apppickle
     URI pickle
+    VERSION 1.0
     QML_FILES
-        Main.qml
+        qml/Main.qml
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -30,7 +39,10 @@ set_target_properties(apppickle PROPERTIES
 )
 
 target_link_libraries(apppickle
-    PRIVATE Qt6::Quick
+    PRIVATE
+        Qt6::Quick
+        Qt6::Multimedia
+        Qt6::Sql
 )
 
 install(TARGETS apppickle
