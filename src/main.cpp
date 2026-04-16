@@ -1,10 +1,15 @@
 #include <QCoreApplication>
+#include <QDebug>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QVariant>
 
 #include "app/AppController.h"
+#include "db/DatabaseService.h"
+#include "db/MediaRepository.h"
+#include "db/MigrationService.h"
 #include "media/MediaLibraryModel.h"
+#include "media/PlaybackController.h"
 
 int main(int argc, char *argv[])
 {
@@ -13,12 +18,53 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationName(QStringLiteral("Pickle"));
 
     MediaLibraryModel mediaLibraryModel;
-    AppController appController(&mediaLibraryModel);
+
+    DatabaseService databaseService;
+    bool databaseReady = databaseService.open();
+    QString databaseStatus;
+
+    if (databaseReady) {
+        MigrationService migrationService(databaseService.database());
+        databaseReady = migrationService.migrate();
+        databaseStatus = databaseReady
+            ? QStringLiteral("DB ready")
+            : QStringLiteral("DB migration failed: %1").arg(migrationService.lastError());
+    } else {
+        databaseStatus = QStringLiteral("DB open failed: %1").arg(databaseService.lastError());
+    }
+
+    MediaRepository mediaRepository(databaseService.database());
+    if (databaseReady) {
+        mediaLibraryModel.setItems(mediaRepository.fetchLibraryItems());
+        if (!mediaRepository.lastError().isEmpty()) {
+            databaseReady = false;
+            databaseStatus = QStringLiteral("Library load failed: %1").arg(mediaRepository.lastError());
+        }
+    }
+
+    AppController appController(&mediaLibraryModel, databaseReady ? &mediaRepository : nullptr);
+    appController.setDatabaseState(databaseReady, databaseStatus, databaseService.databasePath());
+    PlaybackController playbackController;
+    playbackController.setMedia(appController.selectedMedia());
+    QObject::connect(
+        &appController,
+        &AppController::selectedMediaChanged,
+        &playbackController,
+        [&appController, &playbackController]() {
+            playbackController.setMedia(appController.selectedMedia());
+        });
+
+    if (databaseReady) {
+        qInfo() << databaseStatus << databaseService.databasePath();
+    } else {
+        qWarning() << databaseStatus << databaseService.databasePath();
+    }
 
     QQmlApplicationEngine engine;
     engine.setInitialProperties({
         {QStringLiteral("mediaLibraryModel"), QVariant::fromValue(&mediaLibraryModel)},
         {QStringLiteral("appController"), QVariant::fromValue(&appController)},
+        {QStringLiteral("playbackController"), QVariant::fromValue(&playbackController)},
     });
 
     QObject::connect(

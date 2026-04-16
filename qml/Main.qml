@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 import "components" as Components
@@ -10,6 +11,7 @@ ApplicationWindow {
 
     required property var mediaLibraryModel
     required property var appController
+    required property var playbackController
 
     minimumWidth: 960
     minimumHeight: 600
@@ -18,6 +20,13 @@ ApplicationWindow {
     visible: true
     title: qsTr("Pickle")
     color: "#111318"
+
+    FolderDialog {
+        id: folderDialog
+
+        title: qsTr("Select media folder")
+        onAccepted: window.appController.startDirectoryScan(selectedFolder)
+    }
 
     header: ToolBar {
         background: Rectangle {
@@ -45,14 +54,35 @@ ApplicationWindow {
                 elide: Text.ElideRight
             }
 
+            Label {
+                text: window.appController.databaseStatus
+                color: window.appController.databaseReady ? "#8fd19e" : "#ffb4a8"
+                font.pixelSize: 12
+                elide: Text.ElideMiddle
+                Layout.maximumWidth: 220
+            }
+
+            Label {
+                text: window.appController.scanStatus
+                visible: text.length > 0
+                color: window.appController.scanInProgress ? "#9fc9ff" : "#8e97a8"
+                font.pixelSize: 12
+                elide: Text.ElideMiddle
+                Layout.maximumWidth: 260
+            }
+
             Button {
-                text: qsTr("Rescan")
-                enabled: false
+                text: window.appController.scanInProgress ? qsTr("Scanning") : qsTr("Rescan")
+                enabled: window.appController.databaseReady
+                    && !window.appController.scanInProgress
+                    && window.appController.currentScanRoot.length > 0
+                onClicked: window.appController.rescanCurrentRoot()
             }
 
             Button {
                 text: qsTr("Open Folder")
-                enabled: false
+                enabled: window.appController.databaseReady && !window.appController.scanInProgress
+                onClicked: folderDialog.open()
             }
         }
     }
@@ -76,12 +106,14 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     media: window.appController.selectedMedia
+                    playbackController: window.playbackController
                 }
 
                 Components.PlaybackBar {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 96
                     media: window.appController.selectedMedia
+                    playbackController: window.playbackController
                 }
             }
 
@@ -98,8 +130,25 @@ ApplicationWindow {
                     Layout.preferredHeight: 430
                     model: window.mediaLibraryModel
                     currentIndex: window.appController.selectedIndex
+                    searchText: window.appController.librarySearchText
+                    sortKey: window.appController.librarySortKey
+                    sortAscending: window.appController.librarySortAscending
+                    showThumbnails: window.appController.showThumbnails
+                    libraryStatus: window.appController.libraryStatus
                     onSelected: function(index) {
                         window.appController.selectIndex(index)
+                    }
+                    onSearchRequested: function(searchText) {
+                        window.appController.librarySearchText = searchText
+                    }
+                    onSortKeyRequested: function(sortKey) {
+                        window.appController.librarySortKey = sortKey
+                    }
+                    onSortAscendingRequested: function(ascending) {
+                        window.appController.librarySortAscending = ascending
+                    }
+                    onThumbnailVisibilityRequested: function(showThumbnails) {
+                        window.appController.showThumbnails = showThumbnails
                     }
                 }
 

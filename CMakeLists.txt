@@ -5,7 +5,7 @@ project(pickle VERSION 0.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Multimedia Sql)
+find_package(Qt6 REQUIRED COMPONENTS Quick Multimedia Sql Concurrent QuickDialogs2 Test)
 
 include(GNUInstallDirs)
 
@@ -25,8 +25,19 @@ qt_add_executable(apppickle
     src/main.cpp
     src/app/AppController.cpp
     src/app/AppController.h
+    src/db/DatabaseService.cpp
+    src/db/DatabaseService.h
+    src/db/MediaRepository.cpp
+    src/db/MediaRepository.h
+    src/db/MigrationService.cpp
+    src/db/MigrationService.h
+    src/media/MediaTypes.h
     src/media/MediaLibraryModel.cpp
     src/media/MediaLibraryModel.h
+    src/media/PlaybackController.cpp
+    src/media/PlaybackController.h
+    src/media/ScanService.cpp
+    src/media/ScanService.h
 )
 
 qt_add_qml_module(apppickle
@@ -56,11 +67,70 @@ target_link_libraries(apppickle
         Qt6::Quick
         Qt6::Multimedia
         Qt6::Sql
+        Qt6::Concurrent
+        Qt6::QuickDialogs2
 )
 
 target_include_directories(apppickle
     PRIVATE src
 )
+
+enable_testing()
+
+qt_add_executable(m03_scan_repository_test
+    tests/M03ScanRepositoryTest.cpp
+    src/db/MediaRepository.cpp
+    src/db/MediaRepository.h
+    src/db/MigrationService.cpp
+    src/db/MigrationService.h
+    src/media/MediaTypes.h
+    src/media/ScanService.cpp
+    src/media/ScanService.h
+)
+
+target_link_libraries(m03_scan_repository_test
+    PRIVATE
+        Qt6::Core
+        Qt6::Sql
+        Qt6::Test
+)
+
+target_include_directories(m03_scan_repository_test
+    PRIVATE src
+)
+
+add_test(NAME m03_scan_repository_test COMMAND m03_scan_repository_test)
+
+qt_add_executable(m04_library_query_test
+    tests/M04LibraryQueryTest.cpp
+    src/app/AppController.cpp
+    src/app/AppController.h
+    src/db/MediaRepository.cpp
+    src/db/MediaRepository.h
+    src/db/MigrationService.cpp
+    src/db/MigrationService.h
+    src/media/MediaLibraryModel.cpp
+    src/media/MediaLibraryModel.h
+    src/media/MediaTypes.h
+    src/media/PlaybackController.cpp
+    src/media/PlaybackController.h
+    src/media/ScanService.cpp
+    src/media/ScanService.h
+)
+
+target_link_libraries(m04_library_query_test
+    PRIVATE
+        Qt6::Core
+        Qt6::Sql
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+target_include_directories(m04_library_query_test
+    PRIVATE src
+)
+
+add_test(NAME m04_library_query_test COMMAND m04_library_query_test)
 
 install(TARGETS apppickle
     BUNDLE DESTINATION .

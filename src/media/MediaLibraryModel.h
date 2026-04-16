@@ -1,10 +1,9 @@
 #pragma once
 
+#include "media/MediaTypes.h"
+
 #include <QAbstractListModel>
-#include <QString>
-#include <QStringList>
 #include <QVariantMap>
-#include <vector>
 
 class MediaLibraryModel : public QAbstractListModel
 {
@@ -16,14 +15,17 @@ public:
         FileNameRole,
         FilePathRole,
         FileSizeRole,
+        FileSizeBytesRole,
         DurationRole,
+        DurationMsRole,
         ResolutionRole,
         CodecRole,
         DescriptionRole,
         TagsRole,
         ReviewStatusRole,
         RatingRole,
-        ModifiedAtRole
+        ModifiedAtRole,
+        ThumbnailPathRole
     };
 
     explicit MediaLibraryModel(QObject *parent = nullptr);
@@ -33,26 +35,14 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     Q_INVOKABLE QVariantMap get(int row) const;
+    Q_INVOKABLE int mediaIdAt(int row) const;
+    Q_INVOKABLE int indexOfId(int mediaId) const;
+
+    void setItems(QVector<MediaLibraryItem> items);
 
 private:
-    struct MediaItem {
-        int id = 0;
-        QString fileName;
-        QString filePath;
-        QString fileSize;
-        QString duration;
-        QString resolution;
-        QString codec;
-        QString description;
-        QStringList tags;
-        QString reviewStatus;
-        int rating = 0;
-        QString modifiedAt;
-    };
+    QVariant valueForRole(const MediaLibraryItem &item, int role) const;
+    QVariantMap toMap(const MediaLibraryItem &item) const;
 
-    QVariant valueForRole(const MediaItem &item, int role) const;
-    QVariantMap toMap(const MediaItem &item) const;
-    void loadMockItems();
-
-    std::vector<MediaItem> m_items;
+    QVector<MediaLibraryItem> m_items;
 };

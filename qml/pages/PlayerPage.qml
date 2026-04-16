@@ -6,6 +6,7 @@ Rectangle {
     id: root
 
     property var media: ({})
+    property var playbackController: null
 
     radius: 8
     color: "#07080b"
@@ -36,11 +37,23 @@ Rectangle {
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.fillWidth: true
-                text: root.media && root.media.fileName ? root.media.fileName : qsTr("No mock item selected")
+                text: root.media && root.media.fileName ? root.media.fileName : qsTr("No selection")
                 color: "#a8b0bf"
                 font.pixelSize: 15
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
+            }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.fillWidth: true
+                text: root.playbackController && root.playbackController.hasSource
+                    ? String(root.playbackController.sourceUrl)
+                    : qsTr("No playable source")
+                color: "#6f7888"
+                font.pixelSize: 12
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideMiddle
             }
 
             Rectangle {

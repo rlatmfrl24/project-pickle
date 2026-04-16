@@ -6,6 +6,7 @@ Rectangle {
     id: root
 
     property var media: ({})
+    property var playbackController: null
 
     radius: 8
     color: "#171b24"

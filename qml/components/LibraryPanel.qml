@@ -9,8 +9,29 @@ Rectangle {
 
     property var model
     property int currentIndex: -1
+    property string searchText: ""
+    property string sortKey: "name"
+    property bool sortAscending: true
+    property bool showThumbnails: true
+    property string libraryStatus: ""
 
     signal selected(int index)
+    signal searchRequested(string searchText)
+    signal sortKeyRequested(string sortKey)
+    signal sortAscendingRequested(bool ascending)
+    signal thumbnailVisibilityRequested(bool showThumbnails)
+
+    function thumbnailSource(path) {
+        if (!path || path.length === 0) {
+            return ""
+        }
+
+        if (path.indexOf("file:") === 0 || path.indexOf("qrc:") === 0) {
+            return path
+        }
+
+        return "file:///" + path.replace(/\\/g, "/")
+    }
 
     radius: 8
     color: "#171b24"
@@ -36,8 +57,8 @@ Rectangle {
 
             CheckBox {
                 text: qsTr("Thumbs")
-                checked: true
-                enabled: false
+                checked: root.showThumbnails
+                onToggled: root.thumbnailVisibilityRequested(checked)
             }
         }
 
@@ -46,16 +67,35 @@ Rectangle {
             spacing: 8
 
             TextField {
+                text: root.searchText
                 placeholderText: qsTr("Search")
-                enabled: false
                 Layout.fillWidth: true
+                onTextEdited: root.searchRequested(text)
             }
 
             ComboBox {
-                enabled: false
+                currentIndex: root.sortKey === "size" ? 1 : (root.sortKey === "modified" ? 2 : 0)
                 model: [qsTr("Name"), qsTr("Size"), qsTr("Modified")]
                 Layout.preferredWidth: 112
+                onActivated: function(index) {
+                    const keys = ["name", "size", "modified"]
+                    root.sortKeyRequested(keys[index])
+                }
             }
+
+            Button {
+                text: root.sortAscending ? qsTr("Asc") : qsTr("Desc")
+                Layout.preferredWidth: 64
+                onClicked: root.sortAscendingRequested(!root.sortAscending)
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: root.libraryStatus
+            color: "#7f8898"
+            font.pixelSize: 11
+            elide: Text.ElideRight
         }
 
         ListView {
@@ -78,6 +118,7 @@ Rectangle {
                 required property string duration
                 required property string reviewStatus
                 required property int rating
+                required property string thumbnailPath
 
                 readonly property bool selected: root.currentIndex === row.index
 
@@ -94,10 +135,20 @@ Rectangle {
                     spacing: 10
 
                     Rectangle {
-                        Layout.preferredWidth: 46
+                        visible: root.showThumbnails
+                        Layout.preferredWidth: root.showThumbnails ? 46 : 0
                         Layout.preferredHeight: 46
                         radius: 5
                         color: row.selected ? "#36506f" : "#252c38"
+                        clip: true
+
+                        Image {
+                            anchors.fill: parent
+                            source: root.thumbnailSource(row.thumbnailPath)
+                            visible: row.thumbnailPath.length > 0
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                        }
 
                         Label {
                             anchors.centerIn: parent
@@ -105,6 +156,7 @@ Rectangle {
                             color: "#d6e7ff"
                             font.pixelSize: 16
                             font.weight: Font.DemiBold
+                            visible: row.thumbnailPath.length === 0
                         }
                     }
 
@@ -144,6 +196,17 @@ Rectangle {
                     hoverEnabled: true
                     onClicked: root.selected(row.index)
                 }
+            }
+
+            Label {
+                anchors.centerIn: parent
+                width: parent.width - 32
+                visible: listView.count === 0
+                text: qsTr("No media")
+                color: "#7f8898"
+                font.pixelSize: 13
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
             }
         }
     }
