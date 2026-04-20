@@ -1,6 +1,7 @@
 #pragma once
 
 #include "media/MediaTypes.h"
+#include "ports/IMediaRepository.h"
 
 #include <QSqlDatabase>
 #include <QHash>
@@ -8,7 +9,9 @@
 #include <QStringList>
 #include <QVector>
 
-class MediaRepository
+class QSqlQuery;
+
+class MediaRepository : public IMediaRepository
 {
 public:
     explicit MediaRepository(QSqlDatabase database);
@@ -16,32 +19,34 @@ public:
     bool upsertScanResult(
         const QString &rootPath,
         const QVector<ScannedMediaFile> &files,
-        MediaUpsertResult *result = nullptr);
+        MediaUpsertResult *result = nullptr) override;
 
-    QVector<MediaLibraryItem> fetchLibraryItems();
-    QVector<MediaLibraryItem> fetchLibraryItems(const MediaLibraryQuery &query);
-    bool renameMediaFile(int mediaId, const ScannedMediaFile &file);
-    bool setMediaFavorite(int mediaId, bool enabled);
-    bool setMediaDeleteCandidate(int mediaId, bool enabled);
-    bool updatePlaybackPosition(int mediaId, qint64 positionMs, const QString &playedAt);
-    bool resetLibraryData();
-    bool updateMediaMetadata(int mediaId, const MediaMetadata &metadata);
+    QVector<MediaLibraryItem> fetchLibraryItems() override;
+    QVector<MediaLibraryItem> fetchLibraryItems(const MediaLibraryQuery &query) override;
+    MediaLibraryItem fetchMediaById(int mediaId) override;
+    bool renameMediaFile(int mediaId, const ScannedMediaFile &file) override;
+    bool setMediaFavorite(int mediaId, bool enabled) override;
+    bool setMediaDeleteCandidate(int mediaId, bool enabled) override;
+    bool updatePlaybackPosition(int mediaId, qint64 positionMs, const QString &playedAt) override;
+    bool resetLibraryData() override;
+    bool updateMediaMetadata(int mediaId, const MediaMetadata &metadata) override;
     bool updateMediaDetails(
         int mediaId,
         const QString &description,
         const QString &reviewStatus,
         int rating,
-        const QStringList &tags);
-    bool addSnapshot(int mediaId, const QString &imagePath, qint64 timestampMs, int *snapshotId = nullptr);
-    QVector<SnapshotItem> fetchSnapshotsForMedia(int mediaId);
-    bool setMediaThumbnailPath(int mediaId, const QString &imagePath);
-    QVector<ThumbnailBackfillItem> fetchThumbnailBackfillItems();
-    QString lastError() const;
+        const QStringList &tags) override;
+    bool addSnapshot(int mediaId, const QString &imagePath, qint64 timestampMs, int *snapshotId = nullptr) override;
+    QVector<SnapshotItem> fetchSnapshotsForMedia(int mediaId) override;
+    bool setMediaThumbnailPath(int mediaId, const QString &imagePath) override;
+    QVector<ThumbnailBackfillItem> fetchThumbnailBackfillItems() override;
+    QString lastError() const override;
 
 private:
     bool upsertScanRoot(const QString &rootPath);
-    bool upsertMediaFile(const ScannedMediaFile &file);
-    QHash<int, QStringList> tagsByMediaId(bool *ok);
+    bool prepareMediaFileUpsert(QSqlQuery *query);
+    bool upsertMediaFile(QSqlQuery *query, const ScannedMediaFile &file);
+    QHash<int, QStringList> tagsByMediaIds(const QVector<int> &mediaIds, bool *ok);
     int tagIdForName(const QString &tagName);
     bool ensureOpen();
     void setLastError(const QString &error);

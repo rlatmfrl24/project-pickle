@@ -376,6 +376,7 @@ void M07FileManagementTest::controllerPreservesSelectionAcrossFileActions()
         QCOMPARE(controller.selectedMedia().value(QStringLiteral("id")).toInt(), mediaId);
         QCOMPARE(controller.selectedMedia().value(QStringLiteral("fileName")).toString(), QStringLiteral("controller-renamed.mp4"));
         QVERIFY(QFileInfo::exists(databaseDir.filePath(QStringLiteral("controller-renamed.mp4"))));
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.libraryStatus().contains(QStringLiteral("Loading")), 5000);
 
         controller.resetLibrary();
         QCOMPARE(controller.selectedIndex(), -1);

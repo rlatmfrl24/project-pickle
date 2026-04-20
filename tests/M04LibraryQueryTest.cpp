@@ -210,14 +210,14 @@ void M04LibraryQueryTest::controllerPreservesSelectedMediaAcrossRefreshes()
 
         controller.setLibrarySortKey(QStringLiteral("size"));
         controller.setLibrarySortAscending(false);
-        QCOMPARE(controller.selectedMedia().value(QStringLiteral("id")).toInt(), selectedId);
+        QTRY_COMPARE(controller.selectedMedia().value(QStringLiteral("id")).toInt(), selectedId);
 
         controller.setLibrarySearchText(QStringLiteral("zeta"));
-        QCOMPARE(controller.selectedMedia().value(QStringLiteral("fileName")).toString(), QStringLiteral("zeta.mp4"));
+        QTRY_COMPARE(controller.selectedMedia().value(QStringLiteral("fileName")).toString(), QStringLiteral("zeta.mp4"));
 
         controller.setLibrarySearchText(QStringLiteral("does-not-exist"));
-        QCOMPARE(controller.selectedIndex(), -1);
-        QVERIFY(controller.selectedMedia().isEmpty());
+        QTRY_COMPARE(controller.selectedIndex(), -1);
+        QTRY_VERIFY(controller.selectedMedia().isEmpty());
 
         testDatabase.database.close();
     }

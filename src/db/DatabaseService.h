@@ -17,6 +17,12 @@ public:
     QString lastError() const;
     bool isOpen() const;
 
+    static QSqlDatabase openNamedConnection(
+        const QString &databasePath,
+        const QString &connectionName,
+        QString *errorMessage = nullptr);
+    static bool applyPragmas(QSqlDatabase database, QString *errorMessage = nullptr);
+
 private:
     static QString defaultDatabasePath();
 

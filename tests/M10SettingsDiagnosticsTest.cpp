@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QSqlDatabase>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QUuid>
@@ -107,8 +108,14 @@ void M10SettingsDiagnosticsTest::externalToolServiceReportsStructuredValidationR
     const ExternalToolStatus pathFallbackStatus = service.validateFfprobe(QString());
     QCOMPARE(pathFallbackStatus.toolName, QStringLiteral("ffprobe"));
     QCOMPARE(pathFallbackStatus.configuredPath, QString());
-    QCOMPARE(pathFallbackStatus.resolvedProgram, QStringLiteral("ffprobe"));
     QVERIFY(!pathFallbackStatus.configuredPathUsed);
+    if (QStandardPaths::findExecutable(QStringLiteral("ffprobe")).isEmpty()) {
+        QCOMPARE(pathFallbackStatus.resolvedProgram, QStringLiteral("ffprobe"));
+        QVERIFY(!pathFallbackStatus.succeeded);
+        QVERIFY(pathFallbackStatus.errorMessage.contains(QStringLiteral("PATH")));
+    } else {
+        QVERIFY(QFileInfo(pathFallbackStatus.resolvedProgram).isAbsolute());
+    }
     QVERIFY(pathFallbackStatus.succeeded || !pathFallbackStatus.errorMessage.isEmpty());
 }
 
@@ -166,7 +173,11 @@ void M10SettingsDiagnosticsTest::controllerPersistsSettingsAndBuildsDiagnostics(
         QVERIFY(report.contains(QStringLiteral("Pickle Diagnostic Report")));
         QVERIFY(report.contains(QStringLiteral("Tools:")));
         QVERIFY(report.contains(QStringLiteral("Recent work events")));
-        QVERIFY(report.contains(testDatabase.database.databaseName()));
+        QVERIFY(!report.contains(testDatabase.database.databaseName()));
+        QVERIFY(report.contains(QStringLiteral("controller.sqlite3")));
+        QVERIFY(report.contains(QStringLiteral("<home>/"))
+            || report.contains(QStringLiteral("<app-data>/"))
+            || report.contains(QStringLiteral("<path>/")));
 
         const QString mediaPath = QDir(databaseDir.path()).filePath(QStringLiteral("clip.mp4"));
         QCOMPARE(controller.localPathFromUrl(QUrl::fromLocalFile(mediaPath)), QDir::toNativeSeparators(mediaPath));

@@ -1,12 +1,13 @@
 #include "AppLogger.h"
 
+#include "core/PathSecurity.h"
+
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QMessageLogContext>
 #include <QMutex>
-#include <QStandardPaths>
 #include <QTextStream>
 
 namespace {
@@ -84,12 +85,7 @@ void AppLogger::initialize()
 
 QString AppLogger::logPath()
 {
-    QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (appDataPath.isEmpty()) {
-        appDataPath = QDir::homePath() + QStringLiteral("/.pickle");
-    }
-
-    return QDir::toNativeSeparators(QDir(appDataPath).filePath(QStringLiteral("pickle.log")));
+    return QDir::toNativeSeparators(QDir(PathSecurity::appDataPath()).filePath(QStringLiteral("pickle.log")));
 }
 
 QString AppLogger::rotatedLogPath()

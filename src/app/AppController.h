@@ -14,8 +14,10 @@
 
 class CancellationToken;
 class AppSettingsRepository;
+class LibraryController;
 class MediaRepository;
 class MediaLibraryModel;
+class ScanController;
 
 class AppController : public QObject
 {
@@ -159,7 +161,8 @@ signals:
 
 private:
     void startDirectoryScanPath(const QString &rootPath);
-    void handleScanFinished();
+    void handleScanFinished(const ScanCommitResult &commitResult);
+    void handleLibraryReloadFinished(const LibraryLoadResult &result);
     void handleMetadataFinished();
     void handleSnapshotFinished();
     void handleThumbnailMaintenanceFinished();
@@ -168,7 +171,8 @@ private:
     void startMetadataExtraction(const QVariantMap &media, bool manual);
     void refreshSelectedSnapshots();
     bool hasActiveBackgroundWork() const;
-    bool reloadLibraryFromRepository();
+    void requestLibraryReload(int delayMs);
+    bool applyLibraryItems(QVector<MediaLibraryItem> items);
     void syncSelectionAfterLibraryChange();
     void setScanState(bool inProgress, const QString &status, const QString &currentScanRoot);
     void setScanProgress(int visitedCount, int foundCount, const QString &progressText);
@@ -189,14 +193,14 @@ private:
     MediaLibraryModel *m_mediaLibraryModel = nullptr;
     MediaRepository *m_mediaRepository = nullptr;
     AppSettingsRepository *m_settingsRepository = nullptr;
-    std::unique_ptr<QFutureWatcher<DirectoryScanResult>> m_scanWatcher;
+    std::unique_ptr<ScanController> m_scanController;
+    std::unique_ptr<LibraryController> m_libraryController;
     std::unique_ptr<QFutureWatcher<void>> m_metadataWatcher;
     std::shared_ptr<MetadataExtractionResult> m_metadataResult;
     std::unique_ptr<QFutureWatcher<void>> m_snapshotWatcher;
     std::shared_ptr<SnapshotCaptureResult> m_snapshotResult;
     std::unique_ptr<QFutureWatcher<void>> m_thumbnailMaintenanceWatcher;
     std::shared_ptr<QVector<ThumbnailGenerationResult>> m_thumbnailMaintenanceResult;
-    std::shared_ptr<CancellationToken> m_scanCancellation;
     std::shared_ptr<CancellationToken> m_metadataCancellation;
     std::shared_ptr<CancellationToken> m_snapshotCancellation;
     std::shared_ptr<CancellationToken> m_thumbnailMaintenanceCancellation;

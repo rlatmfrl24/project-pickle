@@ -13,6 +13,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUuid>
 #include <QtTest/QtTest>
@@ -169,7 +170,15 @@ void M09QualityPerformanceTest::thumbnailServiceCreatesSmallCacheAndRejectsMissi
     QVERIFY(missingResult.errorMessage.contains(QStringLiteral("does not exist")));
 
     QString clearError;
-    QVERIFY2(ThumbnailService::clearThumbnailRoot(tempDir.filePath(QStringLiteral("thumbnails")), &clearError), qPrintable(clearError));
+    QVERIFY(!ThumbnailService::clearThumbnailRoot(tempDir.filePath(QStringLiteral("thumbnails")), &clearError));
+    QVERIFY(clearError.contains(QStringLiteral("outside")));
+
+    QStandardPaths::setTestModeEnabled(true);
+    const QString managedRoot = ThumbnailService::defaultThumbnailRoot();
+    QVERIFY(QDir().mkpath(managedRoot));
+    QVERIFY(writeFile(QDir(managedRoot).filePath(QStringLiteral("managed.jpg")), QByteArray("jpg")));
+    QVERIFY2(ThumbnailService::clearThumbnailRoot(managedRoot, &clearError), qPrintable(clearError));
+    QVERIFY(!QDir(managedRoot).exists());
 }
 
 void M09QualityPerformanceTest::repositoryBackfillPrefersLatestSnapshotAndKeepsCachedThumbnailSeparate()

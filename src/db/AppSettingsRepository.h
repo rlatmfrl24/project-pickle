@@ -1,18 +1,19 @@
 #pragma once
 
 #include "media/MediaTypes.h"
+#include "ports/ISettingsRepository.h"
 
 #include <QSqlDatabase>
 #include <QString>
 
-class AppSettingsRepository
+class AppSettingsRepository : public ISettingsRepository
 {
 public:
     explicit AppSettingsRepository(QSqlDatabase database);
 
-    AppSettings load();
-    bool save(const AppSettings &settings);
-    QString lastError() const;
+    AppSettings load() override;
+    bool save(const AppSettings &settings) override;
+    QString lastError() const override;
 
     static AppSettings normalized(AppSettings settings);
 

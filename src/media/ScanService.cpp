@@ -3,10 +3,14 @@
 #include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QSet>
 
 namespace {
+constexpr int ProgressFileInterval = 100;
+constexpr int ProgressTimeIntervalMs = 100;
+
 QString normalizedPath(const QFileInfo &fileInfo)
 {
     QString path = fileInfo.canonicalFilePath();
@@ -39,8 +43,17 @@ DirectoryScanResult ScanService::scanDirectory(
 
     result.rootPath = normalizedPath(rootInfo);
 
-    auto reportProgress = [&](const QString &currentPath, bool canceled = false) {
+    QElapsedTimer progressTimer;
+    progressTimer.start();
+    int lastReportedVisitedCount = 0;
+    auto reportProgress = [&](const QString &currentPath, bool canceled = false, bool force = false) {
         if (!progressCallback) {
+            return;
+        }
+        if (!force
+            && !canceled
+            && result.visitedFileCount - lastReportedVisitedCount < ProgressFileInterval
+            && progressTimer.elapsed() < ProgressTimeIntervalMs) {
             return;
         }
 
@@ -51,12 +64,14 @@ DirectoryScanResult ScanService::scanDirectory(
         progress.matchedFileCount = result.matchedFileCount;
         progress.canceled = canceled;
         progressCallback(progress);
+        lastReportedVisitedCount = result.visitedFileCount;
+        progressTimer.restart();
     };
 
     if (cancellationToken && cancellationToken->isCancellationRequested()) {
         result.canceled = true;
         result.errorMessage = QStringLiteral("Scan canceled.");
-        reportProgress(result.rootPath, true);
+        reportProgress(result.rootPath, true, true);
         return result;
     }
 
@@ -70,7 +85,7 @@ DirectoryScanResult ScanService::scanDirectory(
             result.files.clear();
             result.canceled = true;
             result.errorMessage = QStringLiteral("Scan canceled.");
-            reportProgress(result.rootPath, true);
+            reportProgress(result.rootPath, true, true);
             return result;
         }
 
@@ -95,7 +110,7 @@ DirectoryScanResult ScanService::scanDirectory(
     }
 
     result.succeeded = true;
-    reportProgress(result.rootPath);
+    reportProgress(result.rootPath, false, true);
     return result;
 }
 

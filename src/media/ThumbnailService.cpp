@@ -1,11 +1,12 @@
 #include "ThumbnailService.h"
 
+#include "core/PathSecurity.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
 #include <QImageWriter>
-#include <QStandardPaths>
 
 namespace {
 QString thumbnailFileName(int mediaId, const QFileInfo &sourceInfo, int maxWidth)
@@ -15,6 +16,7 @@ QString thumbnailFileName(int mediaId, const QFileInfo &sourceInfo, int maxWidth
         .arg(sourceInfo.completeBaseName())
         .arg(maxWidth);
 }
+
 }
 
 ThumbnailGenerationResult ThumbnailService::generate(
@@ -101,12 +103,7 @@ ThumbnailGenerationResult ThumbnailService::generate(
 
 QString ThumbnailService::defaultThumbnailRoot()
 {
-    QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (appDataPath.isEmpty()) {
-        appDataPath = QDir::homePath() + QStringLiteral("/.pickle");
-    }
-
-    return QDir::toNativeSeparators(QDir(appDataPath).filePath(QStringLiteral("thumbnails")));
+    return QDir::toNativeSeparators(QDir(PathSecurity::appDataPath()).filePath(QStringLiteral("thumbnails")));
 }
 
 bool ThumbnailService::clearThumbnailRoot(const QString &rootPath, QString *errorMessage)
@@ -117,6 +114,13 @@ bool ThumbnailService::clearThumbnailRoot(const QString &rootPath, QString *erro
 
     if (rootPath.trimmed().isEmpty()) {
         return true;
+    }
+
+    if (!PathSecurity::samePath(rootPath, defaultThumbnailRoot())) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Refusing to clear a folder outside the managed thumbnail root.");
+        }
+        return false;
     }
 
     QDir thumbnailRoot(rootPath);
@@ -148,4 +152,13 @@ bool ThumbnailService::isUsableThumbnail(const QString &thumbnailPath, int maxWi
     QImageReader reader(thumbnailInfo.absoluteFilePath());
     const QSize size = reader.size();
     return size.isValid() && size.width() > 0 && size.width() <= maxWidth;
+}
+
+bool ThumbnailService::isManagedThumbnailPath(const QString &thumbnailPath)
+{
+    if (thumbnailPath.trimmed().isEmpty()) {
+        return false;
+    }
+
+    return PathSecurity::isInsideOrEqual(thumbnailPath, defaultThumbnailRoot());
 }

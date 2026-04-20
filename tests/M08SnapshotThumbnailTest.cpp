@@ -10,6 +10,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUuid>
 #include <QtTest/QtTest>
@@ -135,7 +136,7 @@ void M08SnapshotThumbnailTest::repositoryStoresSnapshotsAndThumbnail()
         const QVector<MediaLibraryItem> items = repository.fetchLibraryItems();
         QVERIFY2(repository.lastError().isEmpty(), qPrintable(repository.lastError()));
         QCOMPARE(items.size(), 1);
-        QCOMPARE(items.first().thumbnailPath, QDir::toNativeSeparators(secondSnapshotPath));
+        QCOMPARE(items.first().thumbnailPath, QString());
 
         QVERIFY2(repository.resetLibraryData(), qPrintable(repository.lastError()));
         QCOMPARE(rowCount(testDatabase.database, QStringLiteral("snapshots")), 0);
@@ -191,9 +192,8 @@ void M08SnapshotThumbnailTest::snapshotServiceRejectsInvalidInputAndClearsRoot()
     QVERIFY(!result.succeeded);
     QVERIFY(result.errorMessage.contains(QStringLiteral("output folder")));
 
-    QTemporaryDir snapshotDir;
-    QVERIFY(snapshotDir.isValid());
-    const QString rootPath = snapshotDir.filePath(QStringLiteral("snapshots"));
+    QStandardPaths::setTestModeEnabled(true);
+    const QString rootPath = SnapshotService::defaultSnapshotRoot();
     const QString nestedPath = QDir(rootPath).filePath(QStringLiteral("1"));
     QVERIFY(QDir().mkpath(nestedPath));
     QVERIFY(writeFile(QDir(nestedPath).filePath(QStringLiteral("snapshot.jpg")), QByteArray("jpg")));
@@ -202,6 +202,14 @@ void M08SnapshotThumbnailTest::snapshotServiceRejectsInvalidInputAndClearsRoot()
     QString clearError;
     QVERIFY2(SnapshotService::clearSnapshotRoot(rootPath, &clearError), qPrintable(clearError));
     QVERIFY(!QDir(rootPath).exists());
+
+    QTemporaryDir outsideDir;
+    QVERIFY(outsideDir.isValid());
+    const QString outsideRoot = outsideDir.filePath(QStringLiteral("snapshots"));
+    QVERIFY(QDir().mkpath(outsideRoot));
+    QVERIFY(!SnapshotService::clearSnapshotRoot(outsideRoot, &clearError));
+    QVERIFY(clearError.contains(QStringLiteral("outside")));
+    QVERIFY(QDir(outsideRoot).exists());
 }
 
 QTEST_MAIN(M08SnapshotThumbnailTest)

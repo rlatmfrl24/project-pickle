@@ -1,11 +1,14 @@
 #include "DatabaseService.h"
 
+#include "core/PathSecurity.h"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
+#include <QStringList>
 
 #include <utility>
 
@@ -27,30 +30,8 @@ DatabaseService::~DatabaseService()
 
 bool DatabaseService::open()
 {
-    const QFileInfo databaseFileInfo(m_databasePath);
-    QDir databaseDir(databaseFileInfo.absolutePath());
-    if (!databaseDir.exists() && !databaseDir.mkpath(QStringLiteral("."))) {
-        m_lastError = QStringLiteral("Failed to create database directory: %1")
-                          .arg(databaseDir.absolutePath());
-        return false;
-    }
-
-    if (QSqlDatabase::contains(m_connectionName)) {
-        m_database = QSqlDatabase::database(m_connectionName);
-    } else {
-        m_database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
-    }
-
-    m_database.setDatabaseName(m_databasePath);
-
-    if (!m_database.open()) {
-        m_lastError = m_database.lastError().text();
-        return false;
-    }
-
-    QSqlQuery pragmaQuery(m_database);
-    if (!pragmaQuery.exec(QStringLiteral("PRAGMA foreign_keys = ON"))) {
-        m_lastError = pragmaQuery.lastError().text();
+    m_database = openNamedConnection(m_databasePath, m_connectionName, &m_lastError);
+    if (!m_database.isOpen()) {
         return false;
     }
 
@@ -83,6 +64,87 @@ bool DatabaseService::isOpen() const
     return m_database.isOpen();
 }
 
+QSqlDatabase DatabaseService::openNamedConnection(
+    const QString &databasePath,
+    const QString &connectionName,
+    QString *errorMessage)
+{
+    if (errorMessage) {
+        errorMessage->clear();
+    }
+
+    if (databasePath.trimmed().isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Database path is empty.");
+        }
+        return {};
+    }
+
+    const QFileInfo databaseFileInfo(databasePath);
+    QDir databaseDir(databaseFileInfo.absolutePath());
+    if (!databaseDir.exists() && !databaseDir.mkpath(QStringLiteral("."))) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Failed to create database directory: %1")
+                                .arg(databaseDir.absolutePath());
+        }
+        return {};
+    }
+
+    QSqlDatabase database = QSqlDatabase::contains(connectionName)
+        ? QSqlDatabase::database(connectionName)
+        : QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    database.setDatabaseName(databasePath);
+
+    if (!database.open()) {
+        if (errorMessage) {
+            *errorMessage = database.lastError().text();
+        }
+        return {};
+    }
+
+    if (!applyPragmas(database, errorMessage)) {
+        database.close();
+        return {};
+    }
+
+    return database;
+}
+
+bool DatabaseService::applyPragmas(QSqlDatabase database, QString *errorMessage)
+{
+    if (errorMessage) {
+        errorMessage->clear();
+    }
+
+    if (!database.isOpen()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Database connection is not open.");
+        }
+        return false;
+    }
+
+    const QStringList pragmas = {
+        QStringLiteral("PRAGMA foreign_keys = ON"),
+        QStringLiteral("PRAGMA journal_mode = WAL"),
+        QStringLiteral("PRAGMA synchronous = NORMAL"),
+        QStringLiteral("PRAGMA busy_timeout = 5000"),
+        QStringLiteral("PRAGMA temp_store = MEMORY"),
+    };
+
+    for (const QString &pragma : pragmas) {
+        QSqlQuery query(database);
+        if (!query.exec(pragma)) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("%1 | SQL: %2")
+                                    .arg(query.lastError().text(), pragma);
+            }
+            return false;
+        }
+    }
+
+    return true;
+}
+
 QString DatabaseService::defaultDatabasePath()
 {
     QString basePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -90,5 +152,5 @@ QString DatabaseService::defaultDatabasePath()
         basePath = QCoreApplication::applicationDirPath();
     }
 
-    return QDir(basePath).filePath(QStringLiteral("pickle.sqlite3"));
+    return QDir(basePath.isEmpty() ? PathSecurity::appDataPath() : basePath).filePath(QStringLiteral("pickle.sqlite3"));
 }

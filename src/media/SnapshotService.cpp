@@ -1,11 +1,11 @@
 #include "SnapshotService.h"
 
+#include "core/PathSecurity.h"
 #include "core/ProcessRunner.h"
 #include "media/ThumbnailService.h"
 
 #include <QDir>
 #include <QFileInfo>
-#include <QStandardPaths>
 #include <QUuid>
 
 #include <algorithm>
@@ -20,6 +20,7 @@ QString captureFileName(int mediaId, qint64 timestampMs)
         .arg(timestampMs)
         .arg(QUuid::createUuid().toString(QUuid::Id128));
 }
+
 }
 
 SnapshotCaptureResult SnapshotService::capture(
@@ -140,12 +141,7 @@ SnapshotCaptureResult SnapshotService::capture(
 
 QString SnapshotService::defaultSnapshotRoot()
 {
-    QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (appDataPath.isEmpty()) {
-        appDataPath = QDir::homePath() + QStringLiteral("/.pickle");
-    }
-
-    return QDir::toNativeSeparators(QDir(appDataPath).filePath(QStringLiteral("snapshots")));
+    return QDir::toNativeSeparators(QDir(PathSecurity::appDataPath()).filePath(QStringLiteral("snapshots")));
 }
 
 bool SnapshotService::clearSnapshotRoot(const QString &rootPath, QString *errorMessage)
@@ -156,6 +152,13 @@ bool SnapshotService::clearSnapshotRoot(const QString &rootPath, QString *errorM
 
     if (rootPath.trimmed().isEmpty()) {
         return true;
+    }
+
+    if (!PathSecurity::samePath(rootPath, defaultSnapshotRoot())) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Refusing to clear a folder outside the managed snapshot root.");
+        }
+        return false;
     }
 
     QDir snapshotRoot(rootPath);

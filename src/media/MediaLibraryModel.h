@@ -3,6 +3,7 @@
 #include "media/MediaTypes.h"
 
 #include <QAbstractListModel>
+#include <QHash>
 #include <QVariantMap>
 
 class MediaLibraryModel : public QAbstractListModel
@@ -46,15 +47,19 @@ public:
     Q_INVOKABLE int mediaIdAt(int row) const;
     Q_INVOKABLE int indexOfId(int mediaId) const;
 
+    MediaLibraryItem itemAt(int row) const;
     void setItems(QVector<MediaLibraryItem> items);
+    bool replaceItem(int mediaId, const MediaLibraryItem &item);
     bool setFavorite(int mediaId, bool enabled);
     bool setDeleteCandidate(int mediaId, bool enabled);
     bool setPlaybackPosition(int mediaId, qint64 positionMs, const QString &playedAt);
     bool setThumbnailPath(int mediaId, const QString &thumbnailPath);
 
 private:
+    void rebuildIndex();
     QVariant valueForRole(const MediaLibraryItem &item, int role) const;
     QVariantMap toMap(const MediaLibraryItem &item) const;
 
     QVector<MediaLibraryItem> m_items;
+    QHash<int, int> m_rowById;
 };

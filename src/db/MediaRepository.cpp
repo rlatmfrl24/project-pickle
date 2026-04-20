@@ -1,6 +1,10 @@
 #include "MediaRepository.h"
 
+#include "core/PathSecurity.h"
+
 #include <QHash>
+#include <QDir>
+#include <QFileInfo>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QSet>
@@ -16,6 +20,16 @@ QString escapedLikePattern(QString text)
     text.replace(QStringLiteral("%"), QStringLiteral("\\%"));
     text.replace(QStringLiteral("_"), QStringLiteral("\\_"));
     return QStringLiteral("%%1%").arg(text);
+}
+
+QString defaultThumbnailRoot()
+{
+    return QDir::toNativeSeparators(QDir(PathSecurity::appDataPath()).filePath(QStringLiteral("thumbnails")));
+}
+
+bool isManagedThumbnailPath(const QString &thumbnailPath)
+{
+    return PathSecurity::isInsideOrEqual(thumbnailPath, defaultThumbnailRoot());
 }
 
 QString orderByClause(const MediaLibraryQuery &query)
@@ -171,6 +185,45 @@ QStringList normalizedTags(const QStringList &tags)
 
     return result;
 }
+
+MediaLibraryItem mediaLibraryItemFromQuery(const QSqlQuery &query)
+{
+    MediaLibraryItem item;
+    item.id = query.value(0).toInt();
+    item.fileName = query.value(1).toString();
+    item.filePath = query.value(2).toString();
+    item.fileSizeBytes = query.value(3).toLongLong();
+    item.fileSize = formatFileSize(item.fileSizeBytes);
+    item.modifiedAt = query.value(4).toString();
+    item.durationMs = query.value(5).isNull()
+        ? 0
+        : query.value(5).toLongLong();
+    item.duration = formatDuration(query.value(5));
+    item.resolution = formatResolution(
+        query.value(6),
+        query.value(7));
+    item.codec = formatCodec(
+        query.value(8),
+        query.value(9));
+    item.bitrateBps = query.value(10).isNull()
+        ? 0
+        : query.value(10).toLongLong();
+    item.bitrate = formatBitrate(query.value(10));
+    item.frameRateValue = query.value(11).isNull()
+        ? 0.0
+        : query.value(11).toDouble();
+    item.frameRate = formatFrameRate(query.value(11));
+    item.description = query.value(12).toString();
+    item.reviewStatus = query.value(13).toString();
+    item.rating = query.value(14).toInt();
+    const QString thumbnailPath = query.value(15).toString();
+    item.thumbnailPath = isManagedThumbnailPath(thumbnailPath) ? thumbnailPath : QString();
+    item.isFavorite = query.value(16).toInt() != 0;
+    item.isDeleteCandidate = query.value(17).toInt() != 0;
+    item.lastPositionMs = query.value(18).toLongLong();
+    item.lastPlayedAt = query.value(19).toString();
+    return item;
+}
 }
 
 MediaRepository::MediaRepository(QSqlDatabase database)
@@ -202,8 +255,14 @@ bool MediaRepository::upsertScanResult(
         return false;
     }
 
+    QSqlQuery upsertQuery(m_database);
+    if (!prepareMediaFileUpsert(&upsertQuery)) {
+        m_database.rollback();
+        return false;
+    }
+
     for (const ScannedMediaFile &file : files) {
-        if (!upsertMediaFile(file)) {
+        if (!upsertMediaFile(&upsertQuery, file)) {
             m_database.rollback();
             return false;
         }
@@ -284,47 +343,17 @@ QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems(const MediaLibraryQ
         return items;
     }
 
+    QVector<int> mediaIds;
     while (query.next()) {
-        MediaLibraryItem item;
-        item.id = query.value(QStringLiteral("id")).toInt();
-        item.fileName = query.value(QStringLiteral("file_name")).toString();
-        item.filePath = query.value(QStringLiteral("file_path")).toString();
-        item.fileSizeBytes = query.value(QStringLiteral("file_size")).toLongLong();
-        item.fileSize = formatFileSize(item.fileSizeBytes);
-        item.modifiedAt = query.value(QStringLiteral("modified_at")).toString();
-        item.durationMs = query.value(QStringLiteral("duration_ms")).isNull()
-            ? 0
-            : query.value(QStringLiteral("duration_ms")).toLongLong();
-        item.duration = formatDuration(query.value(QStringLiteral("duration_ms")));
-        item.resolution = formatResolution(
-            query.value(QStringLiteral("width")),
-            query.value(QStringLiteral("height")));
-        item.codec = formatCodec(
-            query.value(QStringLiteral("video_codec")),
-            query.value(QStringLiteral("audio_codec")));
-        item.bitrateBps = query.value(QStringLiteral("bitrate")).isNull()
-            ? 0
-            : query.value(QStringLiteral("bitrate")).toLongLong();
-        item.bitrate = formatBitrate(query.value(QStringLiteral("bitrate")));
-        item.frameRateValue = query.value(QStringLiteral("frame_rate")).isNull()
-            ? 0.0
-            : query.value(QStringLiteral("frame_rate")).toDouble();
-        item.frameRate = formatFrameRate(query.value(QStringLiteral("frame_rate")));
-        item.description = query.value(QStringLiteral("description")).toString();
-        item.reviewStatus = query.value(QStringLiteral("review_status")).toString();
-        item.rating = query.value(QStringLiteral("rating")).toInt();
-        item.thumbnailPath = query.value(QStringLiteral("thumbnail_path")).toString();
-        item.isFavorite = query.value(QStringLiteral("is_favorite")).toInt() != 0;
-        item.isDeleteCandidate = query.value(QStringLiteral("is_delete_candidate")).toInt() != 0;
-        item.lastPositionMs = query.value(QStringLiteral("last_position_ms")).toLongLong();
-        item.lastPlayedAt = query.value(QStringLiteral("last_played_at")).toString();
+        MediaLibraryItem item = mediaLibraryItemFromQuery(query);
+        mediaIds.append(item.id);
         items.append(item);
     }
 
     query.finish();
 
     bool tagsOk = false;
-    const QHash<int, QStringList> tagMap = tagsByMediaId(&tagsOk);
+    const QHash<int, QStringList> tagMap = tagsByMediaIds(mediaIds, &tagsOk);
     if (!tagsOk) {
         return {};
     }
@@ -335,6 +364,68 @@ QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems(const MediaLibraryQ
 
     m_lastError.clear();
     return items;
+}
+
+MediaLibraryItem MediaRepository::fetchMediaById(int mediaId)
+{
+    if (mediaId <= 0) {
+        setLastError(QStringLiteral("Invalid media id."));
+        return {};
+    }
+
+    if (!ensureOpen()) {
+        return {};
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(R"sql(
+        SELECT
+            id,
+            file_name,
+            file_path,
+            file_size,
+            modified_at,
+            duration_ms,
+            width,
+            height,
+            video_codec,
+            audio_codec,
+            bitrate,
+            frame_rate,
+            description,
+            review_status,
+            rating,
+            thumbnail_path,
+            is_favorite,
+            is_delete_candidate,
+            last_position_ms,
+            last_played_at
+        FROM media_files
+        WHERE id = ?
+    )sql"));
+    query.addBindValue(mediaId);
+
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return {};
+    }
+    if (!query.next()) {
+        setLastError(QStringLiteral("Media row was not found."));
+        return {};
+    }
+
+    MediaLibraryItem item = mediaLibraryItemFromQuery(query);
+    query.finish();
+
+    bool tagsOk = false;
+    const QHash<int, QStringList> tagMap = tagsByMediaIds({mediaId}, &tagsOk);
+    if (!tagsOk) {
+        return {};
+    }
+    item.tags = tagMap.value(mediaId);
+
+    m_lastError.clear();
+    return item;
 }
 
 bool MediaRepository::renameMediaFile(int mediaId, const ScannedMediaFile &file)
@@ -854,10 +945,14 @@ bool MediaRepository::upsertScanRoot(const QString &rootPath)
     return true;
 }
 
-bool MediaRepository::upsertMediaFile(const ScannedMediaFile &file)
+bool MediaRepository::prepareMediaFileUpsert(QSqlQuery *query)
 {
-    QSqlQuery query(m_database);
-    query.prepare(QStringLiteral(R"sql(
+    if (!query) {
+        setLastError(QStringLiteral("Media upsert query is unavailable."));
+        return false;
+    }
+
+    if (!query->prepare(QStringLiteral(R"sql(
         INSERT INTO media_files (
             file_name,
             file_path,
@@ -872,41 +967,85 @@ bool MediaRepository::upsertMediaFile(const ScannedMediaFile &file)
             file_size = excluded.file_size,
             modified_at = excluded.modified_at,
             updated_at = datetime('now')
-    )sql"));
-    query.addBindValue(file.fileName);
-    query.addBindValue(file.filePath);
-    query.addBindValue(file.fileExtension);
-    query.addBindValue(file.fileSize);
-    query.addBindValue(file.modifiedAt);
-
-    if (!query.exec()) {
-        setLastError(query.lastError().text());
+        WHERE
+            media_files.file_name IS NOT excluded.file_name
+            OR media_files.file_extension IS NOT excluded.file_extension
+            OR media_files.file_size IS NOT excluded.file_size
+            OR media_files.modified_at IS NOT excluded.modified_at
+    )sql"))) {
+        setLastError(query->lastError().text());
         return false;
     }
 
     return true;
 }
 
-QHash<int, QStringList> MediaRepository::tagsByMediaId(bool *ok)
+bool MediaRepository::upsertMediaFile(QSqlQuery *query, const ScannedMediaFile &file)
+{
+    if (!query) {
+        setLastError(QStringLiteral("Media upsert query is unavailable."));
+        return false;
+    }
+
+    query->bindValue(0, file.fileName);
+    query->bindValue(1, file.filePath);
+    query->bindValue(2, file.fileExtension);
+    query->bindValue(3, file.fileSize);
+    query->bindValue(4, file.modifiedAt);
+
+    if (!query->exec()) {
+        setLastError(query->lastError().text());
+        return false;
+    }
+
+    return true;
+}
+
+QHash<int, QStringList> MediaRepository::tagsByMediaIds(const QVector<int> &mediaIds, bool *ok)
 {
     if (ok) {
         *ok = false;
     }
 
     QHash<int, QStringList> tags;
-    QSqlQuery query(m_database);
-    if (!query.exec(QStringLiteral(R"sql(
-        SELECT media_tags.media_id, tags.name
-        FROM tags
-        INNER JOIN media_tags ON media_tags.tag_id = tags.id
-        ORDER BY media_tags.media_id, tags.name COLLATE NOCASE, tags.name
-    )sql"))) {
-        setLastError(query.lastError().text());
+    if (mediaIds.isEmpty()) {
+        if (ok) {
+            *ok = true;
+        }
         return tags;
     }
 
-    while (query.next()) {
-        tags[query.value(0).toInt()].append(query.value(1).toString());
+    constexpr int ChunkSize = 900;
+    const int mediaIdCount = static_cast<int>(mediaIds.size());
+    for (int offset = 0; offset < mediaIdCount; offset += ChunkSize) {
+        const int chunkSize = std::min(ChunkSize, mediaIdCount - offset);
+        QStringList placeholders;
+        placeholders.reserve(chunkSize);
+        for (int index = 0; index < chunkSize; ++index) {
+            placeholders.append(QStringLiteral("?"));
+        }
+
+        QSqlQuery query(m_database);
+        query.prepare(QStringLiteral(R"sql(
+            SELECT media_tags.media_id, tags.name
+            FROM media_tags
+            INNER JOIN tags ON media_tags.tag_id = tags.id
+            WHERE media_tags.media_id IN (%1)
+            ORDER BY media_tags.media_id, tags.name COLLATE NOCASE, tags.name
+        )sql").arg(placeholders.join(QLatin1Char(','))));
+
+        for (int index = 0; index < chunkSize; ++index) {
+            query.addBindValue(mediaIds.at(offset + index));
+        }
+
+        if (!query.exec()) {
+            setLastError(query.lastError().text());
+            return tags;
+        }
+
+        while (query.next()) {
+            tags[query.value(0).toInt()].append(query.value(1).toString());
+        }
     }
 
     if (ok) {
@@ -918,7 +1057,7 @@ QHash<int, QStringList> MediaRepository::tagsByMediaId(bool *ok)
 int MediaRepository::tagIdForName(const QString &tagName)
 {
     QSqlQuery selectQuery(m_database);
-    selectQuery.prepare(QStringLiteral("SELECT id FROM tags WHERE lower(name) = lower(?) LIMIT 1"));
+    selectQuery.prepare(QStringLiteral("SELECT id FROM tags WHERE name = ? COLLATE NOCASE LIMIT 1"));
     selectQuery.addBindValue(tagName);
 
     if (!selectQuery.exec()) {

@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QStringList>
 
 namespace {
@@ -31,7 +32,17 @@ ExternalToolStatus ExternalToolService::validateFfmpeg(const QString &configured
 QString ExternalToolService::programForTool(const QString &toolName, const QString &configuredPath)
 {
     const QString trimmedPath = configuredPath.trimmed();
-    return trimmedPath.isEmpty() ? toolName : QDir::toNativeSeparators(QFileInfo(trimmedPath).absoluteFilePath());
+    if (trimmedPath.isEmpty()) {
+        const QString resolvedProgram = QStandardPaths::findExecutable(toolName);
+        return resolvedProgram.isEmpty() ? toolName : QDir::toNativeSeparators(resolvedProgram);
+    }
+
+    const QFileInfo toolInfo(trimmedPath);
+    QString resolvedPath = toolInfo.canonicalFilePath();
+    if (resolvedPath.isEmpty()) {
+        resolvedPath = toolInfo.absoluteFilePath();
+    }
+    return QDir::toNativeSeparators(resolvedPath);
 }
 
 ExternalToolStatus ExternalToolService::validateTool(const QString &toolName, const QString &configuredPath) const
@@ -48,6 +59,17 @@ ExternalToolStatus ExternalToolService::validateTool(const QString &toolName, co
             status.errorMessage = QStringLiteral("%1 path does not exist.").arg(toolName);
             return status;
         }
+        if (toolInfo.suffix().compare(QStringLiteral("exe"), Qt::CaseInsensitive) != 0) {
+            status.errorMessage = QStringLiteral("%1 path must point to a .exe file.").arg(toolName);
+            return status;
+        }
+        if (toolInfo.canonicalFilePath().isEmpty()) {
+            status.errorMessage = QStringLiteral("%1 path could not be resolved.").arg(toolName);
+            return status;
+        }
+    } else if (QStandardPaths::findExecutable(toolName).isEmpty()) {
+        status.errorMessage = QStringLiteral("%1 was not found on PATH.").arg(toolName);
+        return status;
     }
 
     ProcessRunner runner;

@@ -1,14 +1,22 @@
 #include "AppController.h"
 
+#include "application/CaptureSnapshotUseCase.h"
+#include "application/ExtractMetadataUseCase.h"
+#include "application/RenameMediaUseCase.h"
+#include "application/SavePlaybackPositionUseCase.h"
+#include "application/UpdateMediaDetailsUseCase.h"
+#include "application/UpdateMediaFlagsUseCase.h"
+#include "app/LibraryController.h"
+#include "app/ScanController.h"
 #include "core/AppLogger.h"
 #include "core/CancellationToken.h"
 #include "core/ExternalToolService.h"
+#include "core/PathSecurity.h"
 #include "db/AppSettingsRepository.h"
 #include "db/MediaRepository.h"
 #include "media/MediaLibraryModel.h"
 #include "media/MetadataService.h"
 #include "media/RenameService.h"
-#include "media/ScanService.h"
 #include "media/SnapshotService.h"
 #include "media/ThumbnailService.h"
 
@@ -20,7 +28,6 @@
 #include <QFileInfo>
 #include <QLibraryInfo>
 #include <QPointer>
-#include <QStandardPaths>
 #include <QSysInfo>
 #include <QTextStream>
 #include <QtConcurrent>
@@ -52,17 +59,6 @@ QString normalizedSortKeyName(const QString &sortKey)
     }
 
     return QStringLiteral("name");
-}
-
-QString normalizedDirectoryPath(const QString &path)
-{
-    const QFileInfo fileInfo(path);
-    QString normalizedPath = fileInfo.canonicalFilePath();
-    if (normalizedPath.isEmpty()) {
-        normalizedPath = fileInfo.absoluteFilePath();
-    }
-
-    return QDir::toNativeSeparators(normalizedPath);
 }
 
 bool mediaNeedsMetadata(const QVariantMap &media)
@@ -109,15 +105,6 @@ bool statusLooksLikeWarning(const QString &status)
         || normalizedStatus.contains(QStringLiteral("unavailable"));
 }
 
-QString appDataPath()
-{
-    QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (path.isEmpty()) {
-        path = QDir::homePath() + QStringLiteral("/.pickle");
-    }
-
-    return QDir::toNativeSeparators(path);
-}
 }
 
 AppController::AppController(
@@ -149,12 +136,22 @@ AppController::AppController(
     }
     m_libraryStatus = QStringLiteral("Showing %1 item(s)").arg(m_mediaLibraryModel ? m_mediaLibraryModel->rowCount() : 0);
 
-    m_scanWatcher = std::make_unique<QFutureWatcher<DirectoryScanResult>>();
+    m_scanController = std::make_unique<ScanController>();
+    m_libraryController = std::make_unique<LibraryController>();
     m_metadataWatcher = std::make_unique<QFutureWatcher<void>>();
     m_snapshotWatcher = std::make_unique<QFutureWatcher<void>>();
     m_thumbnailMaintenanceWatcher = std::make_unique<QFutureWatcher<void>>();
 
-    connect(m_scanWatcher.get(), &QFutureWatcher<DirectoryScanResult>::finished, this, &AppController::handleScanFinished);
+    connect(m_scanController.get(), &ScanController::scanRejected, this, [this](const QString &status, const QString &currentRoot) {
+        setScanState(false, status, currentRoot);
+    });
+    connect(m_scanController.get(), &ScanController::scanStarted, this, [this](const QString &status, const QString &currentRoot) {
+        setScanState(true, status, currentRoot);
+    });
+    connect(m_scanController.get(), &ScanController::progressChanged, this, &AppController::setScanProgress);
+    connect(m_scanController.get(), &ScanController::scanFinished, this, &AppController::handleScanFinished);
+    connect(m_libraryController.get(), &LibraryController::statusChanged, this, &AppController::setLibraryStatus);
+    connect(m_libraryController.get(), &LibraryController::loadFinished, this, &AppController::handleLibraryReloadFinished);
     connect(m_metadataWatcher.get(), &QFutureWatcher<void>::finished, this, &AppController::handleMetadataFinished);
     connect(m_snapshotWatcher.get(), &QFutureWatcher<void>::finished, this, &AppController::handleSnapshotFinished);
     connect(m_thumbnailMaintenanceWatcher.get(), &QFutureWatcher<void>::finished, this, &AppController::handleThumbnailMaintenanceFinished);
@@ -162,13 +159,18 @@ AppController::AppController(
 
 AppController::~AppController()
 {
-    disconnect(m_scanWatcher.get(), nullptr, this, nullptr);
+    disconnect(m_scanController.get(), nullptr, this, nullptr);
+    disconnect(m_libraryController.get(), nullptr, this, nullptr);
     disconnect(m_metadataWatcher.get(), nullptr, this, nullptr);
     disconnect(m_snapshotWatcher.get(), nullptr, this, nullptr);
     disconnect(m_thumbnailMaintenanceWatcher.get(), nullptr, this, nullptr);
     cancelActiveWork();
-    if (m_scanWatcher && m_scanWatcher->isRunning()) {
-        m_scanWatcher->waitForFinished();
+    if (m_scanController) {
+        m_scanController->waitForFinished();
+    }
+    if (m_libraryController) {
+        m_libraryController->cancelPending();
+        m_libraryController->waitForFinished();
     }
     if (m_metadataWatcher && m_metadataWatcher->isRunning()) {
         m_metadataWatcher->waitForFinished();
@@ -285,8 +287,8 @@ QString AppController::scanProgressText() const
 bool AppController::scanCancelAvailable() const
 {
     return m_scanInProgress
-        && m_scanCancellation
-        && !m_scanCancellation->isCancellationRequested();
+        && m_scanController
+        && m_scanController->cancelAvailable();
 }
 
 QString AppController::librarySearchText() const
@@ -303,9 +305,7 @@ void AppController::setLibrarySearchText(const QString &searchText)
     m_librarySearchText = searchText;
     emit libraryStateChanged();
 
-    if (!reloadLibraryFromRepository()) {
-        setLibraryStatus(QStringLiteral("Library refresh failed: %1").arg(m_mediaRepository ? m_mediaRepository->lastError() : QStringLiteral("repository unavailable")));
-    }
+    requestLibraryReload(150);
 }
 
 QString AppController::librarySortKey() const
@@ -325,9 +325,7 @@ void AppController::setLibrarySortKey(const QString &sortKey)
     emit libraryStateChanged();
     saveCurrentSettings();
 
-    if (!reloadLibraryFromRepository()) {
-        setLibraryStatus(QStringLiteral("Library refresh failed: %1").arg(m_mediaRepository ? m_mediaRepository->lastError() : QStringLiteral("repository unavailable")));
-    }
+    requestLibraryReload(0);
 }
 
 bool AppController::librarySortAscending() const
@@ -346,9 +344,7 @@ void AppController::setLibrarySortAscending(bool ascending)
     emit libraryStateChanged();
     saveCurrentSettings();
 
-    if (!reloadLibraryFromRepository()) {
-        setLibraryStatus(QStringLiteral("Library refresh failed: %1").arg(m_mediaRepository ? m_mediaRepository->lastError() : QStringLiteral("repository unavailable")));
-    }
+    requestLibraryReload(0);
 }
 
 bool AppController::showThumbnails() const
@@ -502,11 +498,10 @@ void AppController::rescanCurrentRoot()
 
 void AppController::cancelScan()
 {
-    if (!m_scanInProgress || !m_scanCancellation) {
+    if (!m_scanInProgress || !m_scanController || !m_scanController->cancel()) {
         return;
     }
 
-    m_scanCancellation->cancel();
     setScanState(true, QStringLiteral("Canceling scan..."), m_currentScanRoot);
 }
 
@@ -548,21 +543,28 @@ void AppController::saveSelectedMediaDetails(
         return;
     }
 
-    if (!m_mediaRepository->updateMediaDetails(
-            mediaId,
-            description,
-            reviewStatus,
-            rating,
-            stringListFromVariantList(tags))) {
-        setDetailStatus(QStringLiteral("Detail save failed: %1").arg(m_mediaRepository->lastError()));
+    const QStringList tagNames = stringListFromVariantList(tags);
+    UpdateMediaDetailsUseCase useCase(m_mediaRepository);
+    const VoidResult result = useCase.execute(mediaId, description, reviewStatus, rating, tagNames);
+    if (!result.succeeded) {
+        setDetailStatus(QStringLiteral("Detail save failed: %1").arg(result.errorMessage));
         return;
     }
 
-    if (!reloadLibraryFromRepository()) {
-        setDetailStatus(QStringLiteral("Detail saved, but refresh failed: %1").arg(m_mediaRepository->lastError()));
-        return;
+    if (m_mediaLibraryModel) {
+        const int row = m_mediaLibraryModel->indexOfId(mediaId);
+        if (row >= 0) {
+            MediaLibraryItem item = m_mediaLibraryModel->itemAt(row);
+            item.description = description;
+            item.reviewStatus = reviewStatus;
+            item.rating = rating;
+            item.tags = tagNames;
+            if (m_mediaLibraryModel->replaceItem(mediaId, item)) {
+                emit selectedMediaChanged();
+            }
+        }
     }
-
+    requestLibraryReload(0);
     setDetailStatus(QStringLiteral("Details saved"));
 }
 
@@ -584,26 +586,34 @@ void AppController::renameSelectedMedia(const QString &newBaseName)
         return;
     }
 
-    RenameService renameService;
     const QFileInfo originalInfo(filePath);
-    const FileRenameResult renameResult = renameService.renameFile(filePath, newBaseName);
+    RenameService renameService;
+    RenameMediaUseCase useCase(&renameService, m_mediaRepository);
+    const OperationResult<ScannedMediaFile> renameResult = useCase.execute(
+        mediaId,
+        filePath,
+        newBaseName,
+        originalInfo.completeBaseName());
     if (!renameResult.succeeded) {
         setFileActionStatus(QStringLiteral("Rename failed: %1").arg(renameResult.errorMessage));
         return;
     }
 
-    if (!m_mediaRepository->renameMediaFile(mediaId, renameResult.file)) {
-        renameService.renameFile(renameResult.file.filePath, originalInfo.completeBaseName());
-        setFileActionStatus(QStringLiteral("Rename DB update failed: %1").arg(m_mediaRepository->lastError()));
-        return;
+    if (m_mediaLibraryModel) {
+        const int row = m_mediaLibraryModel->indexOfId(mediaId);
+        if (row >= 0) {
+            MediaLibraryItem item = m_mediaLibraryModel->itemAt(row);
+            item.fileName = renameResult.value.fileName;
+            item.filePath = renameResult.value.filePath;
+            item.fileSizeBytes = renameResult.value.fileSize;
+            item.modifiedAt = renameResult.value.modifiedAt;
+            if (m_mediaLibraryModel->replaceItem(mediaId, item)) {
+                emit selectedMediaChanged();
+            }
+        }
     }
-
-    if (!reloadLibraryFromRepository()) {
-        setFileActionStatus(QStringLiteral("Rename saved, but refresh failed: %1").arg(m_mediaRepository->lastError()));
-        return;
-    }
-
-    setFileActionStatus(QStringLiteral("Renamed to %1").arg(renameResult.file.fileName));
+    requestLibraryReload(0);
+    setFileActionStatus(QStringLiteral("Renamed to %1").arg(renameResult.value.fileName));
 }
 
 void AppController::setSelectedFavorite(bool enabled)
@@ -621,8 +631,10 @@ void AppController::setSelectedFavorite(bool enabled)
         setFileActionStatus(QStringLiteral("Wait for active work to finish before updating favorite."));
         return;
     }
-    if (!m_mediaRepository->setMediaFavorite(mediaId, enabled)) {
-        setFileActionStatus(QStringLiteral("Favorite update failed: %1").arg(m_mediaRepository->lastError()));
+    UpdateMediaFlagsUseCase useCase(m_mediaRepository);
+    const VoidResult result = useCase.execute(mediaId, MediaFlagKind::Favorite, enabled);
+    if (!result.succeeded) {
+        setFileActionStatus(QStringLiteral("Favorite update failed: %1").arg(result.errorMessage));
         return;
     }
     m_mediaLibraryModel->setFavorite(mediaId, enabled);
@@ -646,8 +658,10 @@ void AppController::setSelectedDeleteCandidate(bool enabled)
         setFileActionStatus(QStringLiteral("Wait for active work to finish before updating delete candidate."));
         return;
     }
-    if (!m_mediaRepository->setMediaDeleteCandidate(mediaId, enabled)) {
-        setFileActionStatus(QStringLiteral("Delete candidate update failed: %1").arg(m_mediaRepository->lastError()));
+    UpdateMediaFlagsUseCase useCase(m_mediaRepository);
+    const VoidResult result = useCase.execute(mediaId, MediaFlagKind::DeleteCandidate, enabled);
+    if (!result.succeeded) {
+        setFileActionStatus(QStringLiteral("Delete candidate update failed: %1").arg(result.errorMessage));
         return;
     }
     m_mediaLibraryModel->setDeleteCandidate(mediaId, enabled);
@@ -672,8 +686,10 @@ void AppController::saveSelectedPlaybackPosition(qint64 positionMs)
     }
 
     const QString playedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-    if (!m_mediaRepository->updatePlaybackPosition(mediaId, normalizedPositionMs, playedAt)) {
-        setFileActionStatus(QStringLiteral("Playback position save failed: %1").arg(m_mediaRepository->lastError()));
+    SavePlaybackPositionUseCase useCase(m_mediaRepository);
+    const VoidResult result = useCase.execute(mediaId, normalizedPositionMs, playedAt);
+    if (!result.succeeded) {
+        setFileActionStatus(QStringLiteral("Playback position save failed: %1").arg(result.errorMessage));
         return;
     }
     m_mediaLibraryModel->setPlaybackPosition(mediaId, normalizedPositionMs, playedAt);
@@ -726,7 +742,8 @@ void AppController::captureSelectedSnapshot(qint64 timestampMs)
     setSnapshotState(true, QStringLiteral("Capturing snapshot: %1").arg(fileName.isEmpty() ? filePath : fileName));
     m_snapshotWatcher->setFuture(QtConcurrent::run([request, snapshotResult, snapshotCancellation]() {
         SnapshotService snapshotService;
-        *snapshotResult = snapshotService.capture(request, snapshotCancellation);
+        CaptureSnapshotUseCase useCase(&snapshotService);
+        *snapshotResult = useCase.execute(request, snapshotCancellation);
     }));
 }
 
@@ -835,8 +852,12 @@ void AppController::resetLibrary()
         setLibraryStatus(QStringLiteral("Database is not ready for library reset."));
         return;
     }
-    if (m_scanWatcher && m_scanWatcher->isRunning()) {
+    if (m_scanController && m_scanController->isRunning()) {
         setLibraryStatus(QStringLiteral("Wait for scan to finish before resetting the library."));
+        return;
+    }
+    if (m_libraryController && m_libraryController->isRunning()) {
+        setLibraryStatus(QStringLiteral("Wait for library refresh to finish before resetting the library."));
         return;
     }
     if (m_metadataInProgress || (m_metadataWatcher && m_metadataWatcher->isRunning())) {
@@ -867,15 +888,20 @@ void AppController::resetLibrary()
     m_metadataMediaId = -1;
     m_metadataManual = false;
     m_autoMetadataQueued = false;
+    if (m_libraryController) {
+        m_libraryController->cancelPending();
+    }
     m_metadataResult.reset();
     m_snapshotMediaId = -1;
     m_snapshotResult.reset();
     m_thumbnailMaintenanceResult.reset();
-    m_scanCancellation.reset();
     m_metadataCancellation.reset();
     m_snapshotCancellation.reset();
     m_thumbnailMaintenanceCancellation.reset();
     m_currentScanRoot.clear();
+    if (m_scanController) {
+        m_scanController->clearCurrentRoot();
+    }
     m_autoMetadataFailures.clear();
     m_selectedSnapshots.clear();
     m_scanVisitedCount = 0;
@@ -939,7 +965,7 @@ QVariantMap AppController::systemInfo() const
         {QStringLiteral("thumbnailRoot"), ThumbnailService::defaultThumbnailRoot()},
         {QStringLiteral("logPath"), AppLogger::logPath()},
         {QStringLiteral("rotatedLogPath"), AppLogger::rotatedLogPath()},
-        {QStringLiteral("appDataPath"), appDataPath()},
+        {QStringLiteral("appDataPath"), PathSecurity::appDataPath()},
         {QStringLiteral("ffprobePath"), m_appSettings.ffprobePath},
         {QStringLiteral("ffmpegPath"), m_appSettings.ffmpegPath},
         {QStringLiteral("toolsStatus"), m_toolsStatus},
@@ -990,8 +1016,8 @@ void AppController::saveSettings(const QVariantMap &settings)
     if (libraryQueryChanged || thumbnailVisibilityChanged) {
         emit libraryStateChanged();
     }
-    if (libraryQueryChanged && !reloadLibraryFromRepository()) {
-        setLibraryStatus(QStringLiteral("Library refresh failed: %1").arg(m_mediaRepository ? m_mediaRepository->lastError() : QStringLiteral("repository unavailable")));
+    if (libraryQueryChanged) {
+        requestLibraryReload(0);
     }
 }
 
@@ -1049,7 +1075,7 @@ void AppController::openLogFolder()
 
 void AppController::openAppDataFolder()
 {
-    const QString path = appDataPath();
+    const QString path = PathSecurity::appDataPath();
     QDir().mkpath(path);
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
         setSettingsStatus(QStringLiteral("Could not open app data folder."));
@@ -1069,15 +1095,15 @@ QString AppController::diagnosticReport() const
            << info.value(QStringLiteral("applicationVersion")).toString() << '\n';
     stream << "Qt: " << info.value(QStringLiteral("qtVersion")).toString() << '\n';
     stream << "OS: " << info.value(QStringLiteral("os")).toString() << '\n';
-    stream << "Database: " << info.value(QStringLiteral("databasePath")).toString() << '\n';
+    stream << "Database: " << PathSecurity::redactedLocalPath(info.value(QStringLiteral("databasePath")).toString()) << '\n';
     stream << "Database status: " << info.value(QStringLiteral("databaseStatus")).toString() << '\n';
-    stream << "App data: " << info.value(QStringLiteral("appDataPath")).toString() << '\n';
-    stream << "Log: " << info.value(QStringLiteral("logPath")).toString() << '\n';
-    stream << "Rotated log: " << info.value(QStringLiteral("rotatedLogPath")).toString() << '\n';
-    stream << "Snapshot root: " << info.value(QStringLiteral("snapshotRoot")).toString() << '\n';
-    stream << "Thumbnail root: " << info.value(QStringLiteral("thumbnailRoot")).toString() << '\n';
-    stream << "ffprobe path: " << (m_appSettings.ffprobePath.isEmpty() ? QStringLiteral("PATH") : m_appSettings.ffprobePath) << '\n';
-    stream << "ffmpeg path: " << (m_appSettings.ffmpegPath.isEmpty() ? QStringLiteral("PATH") : m_appSettings.ffmpegPath) << '\n';
+    stream << "App data: " << PathSecurity::redactedLocalPath(info.value(QStringLiteral("appDataPath")).toString()) << '\n';
+    stream << "Log: " << PathSecurity::redactedLocalPath(info.value(QStringLiteral("logPath")).toString()) << '\n';
+    stream << "Rotated log: " << PathSecurity::redactedLocalPath(info.value(QStringLiteral("rotatedLogPath")).toString()) << '\n';
+    stream << "Snapshot root: " << PathSecurity::redactedLocalPath(info.value(QStringLiteral("snapshotRoot")).toString()) << '\n';
+    stream << "Thumbnail root: " << PathSecurity::redactedLocalPath(info.value(QStringLiteral("thumbnailRoot")).toString()) << '\n';
+    stream << "ffprobe path: " << (m_appSettings.ffprobePath.isEmpty() ? QStringLiteral("PATH") : PathSecurity::redactedLocalPath(m_appSettings.ffprobePath)) << '\n';
+    stream << "ffmpeg path: " << (m_appSettings.ffmpegPath.isEmpty() ? QStringLiteral("PATH") : PathSecurity::redactedLocalPath(m_appSettings.ffmpegPath)) << '\n';
     stream << "Tools: " << m_toolsStatus << '\n';
     stream << "Settings: " << m_settingsStatus << '\n';
     stream << "Active work: scan=" << m_scanInProgress
@@ -1117,11 +1143,6 @@ QString AppController::localPathFromUrl(const QUrl &url) const
 
 void AppController::startDirectoryScanPath(const QString &rootPath)
 {
-    if (rootPath.trimmed().isEmpty()) {
-        setScanState(false, QStringLiteral("No folder selected"), m_currentScanRoot);
-        return;
-    }
-
     if (m_scanInProgress) {
         setScanState(true, QStringLiteral("Scan already in progress"), m_currentScanRoot);
         return;
@@ -1135,51 +1156,20 @@ void AppController::startDirectoryScanPath(const QString &rootPath)
         setScanState(false, QStringLiteral("Database is not ready for scanning"), m_currentScanRoot);
         return;
     }
-
-    const QFileInfo rootInfo(rootPath);
-    if (!rootInfo.exists() || !rootInfo.isDir()) {
-        setScanState(false, QStringLiteral("Select a valid folder"), m_currentScanRoot);
+    if (m_databasePath.trimmed().isEmpty()) {
+        setScanState(false, QStringLiteral("Database path is not available for scanning"), m_currentScanRoot);
         return;
     }
 
-    const QString normalizedRootPath = normalizedDirectoryPath(rootPath);
-    setScanState(true, QStringLiteral("Scanning %1").arg(normalizedRootPath), normalizedRootPath);
-    setScanProgress(0, 0, QStringLiteral("Scanning..."));
-
-    m_scanCancellation = std::make_shared<CancellationToken>();
-    const std::shared_ptr<CancellationToken> scanCancellation = m_scanCancellation;
-    const QPointer<AppController> self(this);
-    m_scanWatcher->setFuture(QtConcurrent::run([normalizedRootPath, scanCancellation, self]() {
-        ScanService scanService;
-        return scanService.scanDirectory(
-            normalizedRootPath,
-            scanCancellation,
-            [self](const ScanProgress &progress) {
-                if (!self) {
-                    return;
-                }
-
-                const QString path = QFileInfo(progress.currentPath).fileName();
-                const QString text = progress.canceled
-                    ? QStringLiteral("Canceling scan...")
-                    : QStringLiteral("Scanned %1 file(s), found %2 video(s)%3")
-                        .arg(progress.visitedFileCount)
-                        .arg(progress.matchedFileCount)
-                        .arg(path.isEmpty() ? QString() : QStringLiteral(" - %1").arg(path));
-                QMetaObject::invokeMethod(self.data(), [self, progress, text]() {
-                    if (self) {
-                        self->setScanProgress(progress.visitedFileCount, progress.matchedFileCount, text);
-                    }
-                }, Qt::QueuedConnection);
-            });
-    }));
+    if (m_scanController) {
+        m_scanController->startScan(rootPath, m_databasePath);
+    }
 }
 
-void AppController::handleScanFinished()
+void AppController::handleScanFinished(const ScanCommitResult &commitResult)
 {
-    const DirectoryScanResult scanResult = m_scanWatcher->result();
+    const DirectoryScanResult scanResult = commitResult.scan;
     const QString scanRoot = scanResult.rootPath.isEmpty() ? m_currentScanRoot : scanResult.rootPath;
-    m_scanCancellation.reset();
     setScanProgress(scanResult.visitedFileCount, scanResult.matchedFileCount, m_scanProgressText);
 
     if (scanResult.canceled) {
@@ -1193,20 +1183,16 @@ void AppController::handleScanFinished()
         return;
     }
 
-    MediaUpsertResult upsertResult;
-    if (!m_mediaRepository->upsertScanResult(scanRoot, scanResult.files, &upsertResult)) {
-        setScanState(false, QStringLiteral("DB update failed: %1").arg(m_mediaRepository->lastError()), scanRoot);
+    if (!commitResult.succeeded) {
+        setScanState(false, QStringLiteral("DB update failed: %1").arg(commitResult.errorMessage), scanRoot);
         return;
     }
 
-    if (!reloadLibraryFromRepository()) {
-        setScanState(false, QStringLiteral("Library refresh failed: %1").arg(m_mediaRepository->lastError()), scanRoot);
-        return;
-    }
+    requestLibraryReload(0);
 
     setScanState(
         false,
-        QStringLiteral("Scan complete: %1 video file(s)").arg(upsertResult.upsertedFileCount),
+        QStringLiteral("Scan complete: %1 video file(s)").arg(commitResult.upsert.upsertedFileCount),
         scanRoot);
     setScanProgress(scanResult.visitedFileCount, scanResult.matchedFileCount, QStringLiteral("Scan complete"));
     if (!scanRoot.isEmpty() && m_appSettings.lastOpenFolder != scanRoot) {
@@ -1251,12 +1237,7 @@ void AppController::handleMetadataFinished()
         return;
     }
 
-    if (!reloadLibraryFromRepository()) {
-        setMetadataState(false, QStringLiteral("Metadata saved, but refresh failed: %1").arg(m_mediaRepository->lastError()));
-        maybeStartAutoMetadataExtraction();
-        return;
-    }
-
+    requestLibraryReload(0);
     setMetadataState(false, QStringLiteral("Metadata updated"));
     maybeStartAutoMetadataExtraction();
 }
@@ -1409,7 +1390,8 @@ void AppController::startMetadataExtraction(const QVariantMap &media, bool manua
     const QString configuredFfprobeProgram = ffprobeProgram();
     m_metadataWatcher->setFuture(QtConcurrent::run([filePath, configuredFfprobeProgram, metadataResult, metadataCancellation]() {
         MetadataService metadataService;
-        *metadataResult = metadataService.extract(filePath, configuredFfprobeProgram, metadataCancellation);
+        ExtractMetadataUseCase useCase(&metadataService);
+        *metadataResult = useCase.execute(filePath, configuredFfprobeProgram, metadataCancellation);
     }));
 }
 
@@ -1439,27 +1421,44 @@ bool AppController::hasActiveBackgroundWork() const
         || m_metadataInProgress
         || m_snapshotInProgress
         || m_thumbnailMaintenanceInProgress
-        || (m_scanWatcher && m_scanWatcher->isRunning())
+        || (m_scanController && m_scanController->isRunning())
+        || (m_libraryController && m_libraryController->isRunning())
         || (m_metadataWatcher && m_metadataWatcher->isRunning())
         || (m_snapshotWatcher && m_snapshotWatcher->isRunning())
         || (m_thumbnailMaintenanceWatcher && m_thumbnailMaintenanceWatcher->isRunning());
 }
 
-bool AppController::reloadLibraryFromRepository()
+void AppController::requestLibraryReload(int delayMs)
 {
-    if (!m_mediaLibraryModel || !m_mediaRepository) {
-        return false;
+    if (!m_databaseReady || m_databasePath.trimmed().isEmpty()) {
+        return;
+    }
+
+    if (m_libraryController) {
+        m_libraryController->requestReload(m_databasePath, libraryQuery(), delayMs);
+    }
+}
+
+void AppController::handleLibraryReloadFinished(const LibraryLoadResult &result)
+{
+    if (!result.succeeded) {
+        setLibraryStatus(QStringLiteral("Library refresh failed: %1").arg(result.errorMessage));
+        return;
     }
 
     const int preservedMediaId = m_selectedMediaId;
-    QVector<MediaLibraryItem> items = m_mediaRepository->fetchLibraryItems(libraryQuery());
-    if (!m_mediaRepository->lastError().isEmpty()) {
+    applyLibraryItems(QVector<MediaLibraryItem>(result.items));
+    m_selectedMediaId = preservedMediaId;
+    syncSelectionAfterLibraryChange();
+}
+
+bool AppController::applyLibraryItems(QVector<MediaLibraryItem> items)
+{
+    if (!m_mediaLibraryModel) {
         return false;
     }
 
     m_mediaLibraryModel->setItems(std::move(items));
-    m_selectedMediaId = preservedMediaId;
-    syncSelectionAfterLibraryChange();
     setLibraryStatus(QStringLiteral("Showing %1 item(s)").arg(m_mediaLibraryModel->rowCount()));
     return true;
 }

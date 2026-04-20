@@ -78,20 +78,65 @@ int MediaLibraryModel::indexOfId(int mediaId) const
         return -1;
     }
 
-    for (int index = 0; index < m_items.size(); ++index) {
-        if (m_items.at(index).id == mediaId) {
-            return index;
-        }
+    return m_rowById.value(mediaId, -1);
+}
+
+MediaLibraryItem MediaLibraryModel::itemAt(int row) const
+{
+    if (row < 0 || row >= rowCount()) {
+        return {};
     }
 
-    return -1;
+    return m_items.at(row);
 }
 
 void MediaLibraryModel::setItems(QVector<MediaLibraryItem> items)
 {
     beginResetModel();
     m_items = std::move(items);
+    rebuildIndex();
     endResetModel();
+}
+
+bool MediaLibraryModel::replaceItem(int mediaId, const MediaLibraryItem &item)
+{
+    const int row = indexOfId(mediaId);
+    if (row < 0) {
+        return false;
+    }
+
+    m_items[row] = item;
+    if (item.id != mediaId) {
+        rebuildIndex();
+    }
+
+    const QModelIndex modelIndex = index(row);
+    emit dataChanged(modelIndex, modelIndex, {
+        IdRole,
+        FileNameRole,
+        FilePathRole,
+        FileSizeRole,
+        FileSizeBytesRole,
+        DurationRole,
+        DurationMsRole,
+        ResolutionRole,
+        CodecRole,
+        BitrateRole,
+        BitrateBpsRole,
+        FrameRateRole,
+        FrameRateValueRole,
+        DescriptionRole,
+        TagsRole,
+        ReviewStatusRole,
+        RatingRole,
+        ModifiedAtRole,
+        ThumbnailPathRole,
+        IsFavoriteRole,
+        IsDeleteCandidateRole,
+        LastPositionMsRole,
+        LastPlayedAtRole,
+    });
+    return true;
 }
 
 bool MediaLibraryModel::setFavorite(int mediaId, bool enabled)
@@ -145,6 +190,17 @@ bool MediaLibraryModel::setThumbnailPath(int mediaId, const QString &thumbnailPa
     const QModelIndex modelIndex = index(row);
     emit dataChanged(modelIndex, modelIndex, {ThumbnailPathRole});
     return true;
+}
+
+void MediaLibraryModel::rebuildIndex()
+{
+    m_rowById.clear();
+    m_rowById.reserve(m_items.size());
+    for (int row = 0; row < m_items.size(); ++row) {
+        if (m_items.at(row).id > 0) {
+            m_rowById.insert(m_items.at(row).id, row);
+        }
+    }
 }
 
 QVariant MediaLibraryModel::valueForRole(const MediaLibraryItem &item, int role) const

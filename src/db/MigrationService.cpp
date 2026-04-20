@@ -11,6 +11,7 @@ namespace {
 constexpr auto InitialSchemaVersion = "001_initial_schema";
 constexpr auto M07FileManagementVersion = "002_m07_file_management";
 constexpr auto PerformanceIndexesVersion = "003_performance_indexes";
+constexpr auto PerformanceHardeningVersion = "004_performance_hardening";
 
 struct MigrationDefinition {
     QString version;
@@ -109,6 +110,33 @@ QVector<MigrationDefinition> migrations()
                 QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_files_modified_name ON media_files(modified_at, file_name COLLATE NOCASE, file_path)"),
                 QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_files_review_status ON media_files(review_status)"),
                 QStringLiteral("CREATE INDEX IF NOT EXISTS idx_tags_name_nocase ON tags(name COLLATE NOCASE)"),
+            },
+        },
+        {
+            QString::fromLatin1(PerformanceHardeningVersion),
+            {
+                QStringLiteral(R"sql(
+                    CREATE TABLE IF NOT EXISTS media_tags (
+                        media_id INTEGER NOT NULL,
+                        tag_id INTEGER NOT NULL,
+                        PRIMARY KEY (media_id, tag_id),
+                        FOREIGN KEY (media_id) REFERENCES media_files(id) ON DELETE CASCADE,
+                        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+                    )
+                )sql"),
+                QStringLiteral(R"sql(
+                    CREATE TABLE IF NOT EXISTS snapshots (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        media_id INTEGER NOT NULL,
+                        image_path TEXT NOT NULL,
+                        timestamp_ms INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        FOREIGN KEY (media_id) REFERENCES media_files(id) ON DELETE CASCADE
+                    )
+                )sql"),
+                QStringLiteral("CREATE INDEX IF NOT EXISTS idx_snapshots_media_id_id_desc ON snapshots(media_id, id DESC)"),
+                QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_tags_tag_media ON media_tags(tag_id, media_id)"),
+                QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_tags_media_tag ON media_tags(media_id, tag_id)"),
             },
         },
     };
