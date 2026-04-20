@@ -16,6 +16,9 @@ public:
         const QString &rootPath,
         const QVector<ScannedMediaFile> &files,
         MediaUpsertResult *result = nullptr) = 0;
+    virtual QVector<MediaFile> fetchMediaFiles() { return {}; }
+    virtual QVector<MediaFile> fetchMediaFiles(const MediaLibraryQuery &) { return {}; }
+    virtual MediaFile fetchMediaFileById(int) { return {}; }
     virtual QVector<MediaLibraryItem> fetchLibraryItems() = 0;
     virtual QVector<MediaLibraryItem> fetchLibraryItems(const MediaLibraryQuery &query) = 0;
     virtual MediaLibraryItem fetchMediaById(int mediaId) = 0;

@@ -9,4 +9,5 @@ class IExternalToolResolver
 public:
     virtual ~IExternalToolResolver() = default;
     virtual ExternalToolStatus probeTool(const QString &toolName, const QString &configuredPath) const = 0;
+    virtual QString programForTool(const QString &toolName, const QString &configuredPath) const = 0;
 };

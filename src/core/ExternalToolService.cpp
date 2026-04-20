@@ -29,7 +29,12 @@ ExternalToolStatus ExternalToolService::validateFfmpeg(const QString &configured
     return validateTool(QStringLiteral("ffmpeg"), configuredPath);
 }
 
-QString ExternalToolService::programForTool(const QString &toolName, const QString &configuredPath)
+ExternalToolStatus ExternalToolService::probeTool(const QString &toolName, const QString &configuredPath) const
+{
+    return validateTool(toolName, configuredPath);
+}
+
+QString ExternalToolService::programForTool(const QString &toolName, const QString &configuredPath) const
 {
     const QString trimmedPath = configuredPath.trimmed();
     if (trimmedPath.isEmpty()) {

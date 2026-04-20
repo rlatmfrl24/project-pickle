@@ -21,29 +21,28 @@ set_source_files_properties(qml/components/LibraryPanel.qml PROPERTIES QT_RESOUR
 set_source_files_properties(qml/components/PlaybackBar.qml PROPERTIES QT_RESOURCE_ALIAS components/PlaybackBar.qml)
 set_source_files_properties(qml/pages/PlayerPage.qml PROPERTIES QT_RESOURCE_ALIAS pages/PlayerPage.qml)
 
-add_library(pickle_domain INTERFACE)
-
-target_sources(pickle_domain
-    INTERFACE
-        src/domain/LibraryQuery.h
-        src/domain/MediaEntities.h
-        src/domain/OperationResult.h
+qt_add_library(pickle_domain STATIC
+    src/domain/AppSettingsPolicy.cpp
+    src/domain/AppSettingsPolicy.h
+    src/domain/CancellationToken.cpp
+    src/domain/CancellationToken.h
+    src/domain/LibraryQuery.h
+    src/domain/MediaEntities.h
+    src/domain/OperationResult.h
 )
 
 target_link_libraries(pickle_domain
-    INTERFACE
+    PUBLIC
         Qt6::Core
 )
 
 target_include_directories(pickle_domain
-    INTERFACE src
+    PUBLIC src
 )
 
 qt_add_library(pickle_core STATIC
     src/core/AppLogger.cpp
     src/core/AppLogger.h
-    src/core/CancellationToken.cpp
-    src/core/CancellationToken.h
     src/core/ExternalToolService.cpp
     src/core/ExternalToolService.h
     src/core/PathSecurity.cpp
@@ -54,6 +53,7 @@ qt_add_library(pickle_core STATIC
 
 target_link_libraries(pickle_core
     PUBLIC
+        pickle_domain
         Qt6::Core
 )
 
@@ -80,7 +80,6 @@ target_sources(pickle_ports
 target_link_libraries(pickle_ports
     INTERFACE
         pickle_domain
-        pickle_core
 )
 
 target_include_directories(pickle_ports
@@ -182,12 +181,28 @@ target_include_directories(pickle_media
 qt_add_library(pickle_app STATIC
     src/app/AppController.cpp
     src/app/AppController.h
+    src/app/DiagnosticsController.cpp
+    src/app/DiagnosticsController.h
     src/app/LibraryController.cpp
     src/app/LibraryController.h
     src/app/LibraryReloadService.cpp
     src/app/LibraryReloadService.h
+    src/app/MediaActionsController.cpp
+    src/app/MediaActionsController.h
+    src/app/MediaItemPresenter.cpp
+    src/app/MediaItemPresenter.h
+    src/app/MetadataController.cpp
+    src/app/MetadataController.h
     src/app/ScanController.cpp
     src/app/ScanController.h
+    src/app/SettingsController.cpp
+    src/app/SettingsController.h
+    src/app/SnapshotController.cpp
+    src/app/SnapshotController.h
+    src/app/ThumbnailController.cpp
+    src/app/ThumbnailController.h
+    src/app/WorkEventLog.cpp
+    src/app/WorkEventLog.h
 )
 
 target_link_libraries(pickle_app
@@ -391,6 +406,35 @@ pickle_add_test(m16_infrastructure_adapter_test
 pickle_add_test(m17_presentation_facade_test
     tests/M17PresentationFacadeTest.cpp
     pickle_app
+)
+
+pickle_add_test(m18_settings_diagnostics_controller_test
+    tests/M18SettingsDiagnosticsControllerTest.cpp
+    pickle_app
+)
+
+pickle_add_test(m19_repository_presentation_mapper_test
+    tests/M19RepositoryPresentationMapperTest.cpp
+    pickle_app
+    pickle_test_support
+)
+
+pickle_add_test(m20_architecture_boundary_closure_test
+    tests/M20ArchitectureBoundaryClosureTest.cpp
+    pickle_app
+)
+
+target_compile_definitions(m20_architecture_boundary_closure_test
+    PRIVATE PICKLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+
+pickle_add_test(m21_app_controller_facade_closure_test
+    tests/M21AppControllerFacadeClosureTest.cpp
+    pickle_app
+)
+
+target_compile_definitions(m21_app_controller_facade_closure_test
+    PRIVATE PICKLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
 find_program(OPENCPPCOVERAGE_EXECUTABLE OpenCppCoverage)

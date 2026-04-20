@@ -224,6 +224,32 @@ MediaLibraryItem mediaLibraryItemFromQuery(const QSqlQuery &query)
     item.lastPlayedAt = query.value(19).toString();
     return item;
 }
+
+MediaFile mediaFileFromQuery(const QSqlQuery &query)
+{
+    MediaFile file;
+    file.id = query.value(0).toInt();
+    file.fileName = query.value(1).toString();
+    file.filePath = query.value(2).toString();
+    file.fileSizeBytes = query.value(3).toLongLong();
+    file.modifiedAt = query.value(4).toString();
+    file.durationMs = query.value(5).isNull() ? 0 : query.value(5).toLongLong();
+    file.width = query.value(6).isNull() ? 0 : query.value(6).toInt();
+    file.height = query.value(7).isNull() ? 0 : query.value(7).toInt();
+    file.videoCodec = query.value(8).toString();
+    file.audioCodec = query.value(9).toString();
+    file.bitrateBps = query.value(10).isNull() ? 0 : query.value(10).toLongLong();
+    file.frameRateValue = query.value(11).isNull() ? 0.0 : query.value(11).toDouble();
+    file.description = query.value(12).toString();
+    file.reviewStatus = query.value(13).toString();
+    file.rating = query.value(14).toInt();
+    file.thumbnailPath = query.value(15).toString();
+    file.isFavorite = query.value(16).toInt() != 0;
+    file.isDeleteCandidate = query.value(17).toInt() != 0;
+    file.lastPositionMs = query.value(18).toLongLong();
+    file.lastPlayedAt = query.value(19).toString();
+    return file;
+}
 }
 
 MediaRepository::MediaRepository(QSqlDatabase database)
@@ -281,17 +307,17 @@ bool MediaRepository::upsertScanResult(
     return true;
 }
 
-QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems()
+QVector<MediaFile> MediaRepository::fetchMediaFiles()
 {
-    return fetchLibraryItems(MediaLibraryQuery {});
+    return fetchMediaFiles(MediaLibraryQuery {});
 }
 
-QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems(const MediaLibraryQuery &libraryQuery)
+QVector<MediaFile> MediaRepository::fetchMediaFiles(const MediaLibraryQuery &libraryQuery)
 {
-    QVector<MediaLibraryItem> items;
+    QVector<MediaFile> files;
 
     if (!ensureOpen()) {
-        return items;
+        return files;
     }
 
     const QString trimmedSearchText = libraryQuery.searchText.trimmed();
@@ -334,6 +360,151 @@ QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems(const MediaLibraryQ
 
     if (!trimmedSearchText.isEmpty()) {
         const QString pattern = escapedLikePattern(trimmedSearchText);
+        query.addBindValue(pattern);
+        query.addBindValue(pattern);
+    }
+
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return files;
+    }
+
+    QVector<int> mediaIds;
+    while (query.next()) {
+        MediaFile file = mediaFileFromQuery(query);
+        mediaIds.append(file.id);
+        files.append(file);
+    }
+
+    query.finish();
+
+    bool tagsOk = false;
+    const QHash<int, QStringList> tagMap = tagsByMediaIds(mediaIds, &tagsOk);
+    if (!tagsOk) {
+        return {};
+    }
+
+    for (MediaFile &file : files) {
+        file.tags = tagMap.value(file.id);
+    }
+
+    m_lastError.clear();
+    return files;
+}
+
+MediaFile MediaRepository::fetchMediaFileById(int mediaId)
+{
+    if (mediaId <= 0) {
+        setLastError(QStringLiteral("Invalid media id."));
+        return {};
+    }
+    if (!ensureOpen()) {
+        return {};
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(R"sql(
+        SELECT
+            id,
+            file_name,
+            file_path,
+            file_size,
+            modified_at,
+            duration_ms,
+            width,
+            height,
+            video_codec,
+            audio_codec,
+            bitrate,
+            frame_rate,
+            description,
+            review_status,
+            rating,
+            thumbnail_path,
+            is_favorite,
+            is_delete_candidate,
+            last_position_ms,
+            last_played_at
+        FROM media_files
+        WHERE id = ?
+    )sql"));
+    query.addBindValue(mediaId);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return {};
+    }
+    if (!query.next()) {
+        setLastError(QStringLiteral("Media item not found."));
+        return {};
+    }
+
+    MediaFile file = mediaFileFromQuery(query);
+    query.finish();
+    bool tagsOk = false;
+    const QHash<int, QStringList> tagMap = tagsByMediaIds({mediaId}, &tagsOk);
+    if (!tagsOk) {
+        return {};
+    }
+    file.tags = tagMap.value(mediaId);
+    m_lastError.clear();
+    return file;
+}
+
+QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems()
+{
+    return fetchLibraryItems(MediaLibraryQuery {});
+}
+
+QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems(const MediaLibraryQuery &libraryQuery)
+{
+    QVector<MediaLibraryItem> items;
+
+    if (!ensureOpen()) {
+        return items;
+    }
+
+    QSqlQuery query(m_database);
+    QString sql = QStringLiteral(R"sql(
+        SELECT
+            id,
+            file_name,
+            file_path,
+            file_size,
+            modified_at,
+            duration_ms,
+            width,
+            height,
+            video_codec,
+            audio_codec,
+            bitrate,
+            frame_rate,
+            description,
+            review_status,
+            rating,
+            thumbnail_path,
+            is_favorite,
+            is_delete_candidate,
+            last_position_ms,
+            last_played_at
+        FROM media_files
+    )sql");
+
+    const QString searchText = libraryQuery.searchText.trimmed();
+    if (!searchText.isEmpty()) {
+        sql += QStringLiteral(R"sql(
+            WHERE file_name LIKE ? ESCAPE '\' COLLATE NOCASE
+               OR description LIKE ? ESCAPE '\' COLLATE NOCASE
+        )sql");
+    }
+    sql += QStringLiteral(" ORDER BY %1").arg(orderByClause(libraryQuery));
+
+    if (!query.prepare(sql)) {
+        setLastError(query.lastError().text());
+        return items;
+    }
+
+    if (!searchText.isEmpty()) {
+        const QString pattern = escapedLikePattern(searchText);
         query.addBindValue(pattern);
         query.addBindValue(pattern);
     }

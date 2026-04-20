@@ -1,6 +1,6 @@
 #include "LibraryReloadService.h"
 
-#include "application/LoadLibraryUseCase.h"
+#include "app/MediaItemPresenter.h"
 #include "db/MediaRepository.h"
 #include "db/ScopedDatabaseConnection.h"
 
@@ -124,6 +124,11 @@ LibraryLoadResult LibraryReloadService::loadLibrary(
     }
 
     MediaRepository repository(databaseConnection.database());
-    LoadLibraryUseCase useCase(&repository);
-    return useCase.execute(query, generation);
+    result.items = MediaItemPresenter::present(repository.fetchMediaFiles(query));
+    if (!repository.lastError().isEmpty()) {
+        result.errorMessage = repository.lastError();
+        return result;
+    }
+    result.succeeded = true;
+    return result;
 }

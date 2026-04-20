@@ -2,7 +2,6 @@
 
 #include "media/MediaTypes.h"
 
-#include <QFutureWatcher>
 #include <QList>
 #include <QObject>
 #include <QString>
@@ -12,12 +11,22 @@
 
 #include <memory>
 
-class CancellationToken;
-class AppSettingsRepository;
+class DiagnosticsController;
+struct DiagnosticsContext;
+class ISettingsRepository;
+class IMediaRepository;
 class LibraryController;
-class MediaRepository;
+class MediaActionsController;
+class MetadataController;
+struct MetadataControllerResult;
 class MediaLibraryModel;
 class ScanController;
+class SettingsController;
+struct SettingsUpdateResult;
+class SnapshotController;
+class ThumbnailController;
+struct ThumbnailMaintenanceResult;
+class WorkEventLog;
 
 class AppController : public QObject
 {
@@ -60,8 +69,8 @@ class AppController : public QObject
 public:
     explicit AppController(
         MediaLibraryModel *mediaLibraryModel,
-        MediaRepository *mediaRepository,
-        AppSettingsRepository *settingsRepository = nullptr,
+        IMediaRepository *mediaRepository,
+        ISettingsRepository *settingsRepository = nullptr,
         QObject *parent = nullptr);
     ~AppController() override;
 
@@ -163,9 +172,9 @@ private:
     void startDirectoryScanPath(const QString &rootPath);
     void handleScanFinished(const ScanCommitResult &commitResult);
     void handleLibraryReloadFinished(const LibraryLoadResult &result);
-    void handleMetadataFinished();
-    void handleSnapshotFinished();
-    void handleThumbnailMaintenanceFinished();
+    void handleMetadataFinished(const MetadataControllerResult &result);
+    void handleSnapshotFinished(const SnapshotCaptureResult &result);
+    void handleThumbnailMaintenanceFinished(const ThumbnailMaintenanceResult &result);
     void maybeStartAutoMetadataExtraction();
     void runAutoMetadataExtraction();
     void startMetadataExtraction(const QVariantMap &media, bool manual);
@@ -184,31 +193,26 @@ private:
     void setThumbnailMaintenanceState(bool inProgress, const QString &status);
     void setSettingsStatus(const QString &status);
     void setToolsStatus(const QString &status);
-    bool saveCurrentSettings(const QString &successStatus = {});
     QString ffprobeProgram() const;
     QString ffmpegProgram() const;
     void recordWorkEvent(const QString &kind, const QString &message, bool warning = false);
     MediaLibraryQuery libraryQuery() const;
+    void emitSettingsUpdate(const SettingsUpdateResult &result);
+    DiagnosticsContext diagnosticsContext() const;
 
     MediaLibraryModel *m_mediaLibraryModel = nullptr;
-    MediaRepository *m_mediaRepository = nullptr;
-    AppSettingsRepository *m_settingsRepository = nullptr;
+    IMediaRepository *m_mediaRepository = nullptr;
+    std::unique_ptr<SettingsController> m_settingsController;
+    std::unique_ptr<DiagnosticsController> m_diagnosticsController;
+    std::unique_ptr<MediaActionsController> m_mediaActionsController;
+    std::unique_ptr<WorkEventLog> m_workEventLog;
     std::unique_ptr<ScanController> m_scanController;
     std::unique_ptr<LibraryController> m_libraryController;
-    std::unique_ptr<QFutureWatcher<void>> m_metadataWatcher;
-    std::shared_ptr<MetadataExtractionResult> m_metadataResult;
-    std::unique_ptr<QFutureWatcher<void>> m_snapshotWatcher;
-    std::shared_ptr<SnapshotCaptureResult> m_snapshotResult;
-    std::unique_ptr<QFutureWatcher<void>> m_thumbnailMaintenanceWatcher;
-    std::shared_ptr<QVector<ThumbnailGenerationResult>> m_thumbnailMaintenanceResult;
-    std::shared_ptr<CancellationToken> m_metadataCancellation;
-    std::shared_ptr<CancellationToken> m_snapshotCancellation;
-    std::shared_ptr<CancellationToken> m_thumbnailMaintenanceCancellation;
+    std::unique_ptr<MetadataController> m_metadataController;
+    std::unique_ptr<SnapshotController> m_snapshotController;
+    std::unique_ptr<ThumbnailController> m_thumbnailController;
     int m_selectedIndex = 0;
     int m_selectedMediaId = -1;
-    int m_metadataMediaId = -1;
-    bool m_metadataManual = false;
-    int m_snapshotMediaId = -1;
     bool m_databaseReady = false;
     QString m_databaseStatus = QStringLiteral("DB not initialized");
     QString m_databasePath;
@@ -234,10 +238,4 @@ private:
     bool m_thumbnailMaintenanceInProgress = false;
     QString m_thumbnailMaintenanceStatus;
     QList<int> m_autoMetadataFailures;
-    AppSettings m_appSettings;
-    QString m_settingsStatus;
-    QString m_toolsStatus = QStringLiteral("Tools not tested");
-    ExternalToolStatus m_ffprobeToolStatus;
-    ExternalToolStatus m_ffmpegToolStatus;
-    QVariantList m_workEvents;
 };

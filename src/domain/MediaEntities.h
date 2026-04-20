@@ -63,6 +63,30 @@ struct MediaLibraryItem {
     QString lastPlayedAt;
 };
 
+struct MediaFile {
+    int id = 0;
+    QString fileName;
+    QString filePath;
+    qint64 fileSizeBytes = 0;
+    QString modifiedAt;
+    qint64 durationMs = 0;
+    int width = 0;
+    int height = 0;
+    QString videoCodec;
+    QString audioCodec;
+    qint64 bitrateBps = 0;
+    double frameRateValue = 0.0;
+    QString description;
+    QStringList tags;
+    QString reviewStatus = QStringLiteral("unreviewed");
+    int rating = 0;
+    QString thumbnailPath;
+    bool isFavorite = false;
+    bool isDeleteCandidate = false;
+    qint64 lastPositionMs = 0;
+    QString lastPlayedAt;
+};
+
 struct MediaUpsertResult {
     int scannedFileCount = 0;
     int upsertedFileCount = 0;

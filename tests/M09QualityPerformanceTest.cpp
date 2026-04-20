@@ -1,4 +1,4 @@
-#include "core/CancellationToken.h"
+#include "domain/CancellationToken.h"
 #include "core/ProcessRunner.h"
 #include "db/MediaRepository.h"
 #include "db/MigrationService.h"

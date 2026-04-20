@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/CancellationToken.h"
+#include "domain/CancellationToken.h"
 
 #include <QByteArray>
 #include <QString>

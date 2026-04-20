@@ -5,6 +5,7 @@
 #include <QVariant>
 
 #include "app/AppController.h"
+#include "app/MediaItemPresenter.h"
 #include "core/AppLogger.h"
 #include "db/AppSettingsRepository.h"
 #include "db/DatabaseService.h"
@@ -57,7 +58,7 @@ int main(int argc, char *argv[])
             query.sortKey = MediaLibrarySortKey::Modified;
         }
         query.ascending = appSettings.sortAscending;
-        mediaLibraryModel.setItems(mediaRepository.fetchLibraryItems(query));
+        mediaLibraryModel.setItems(MediaItemPresenter::present(mediaRepository.fetchMediaFiles(query)));
         if (!mediaRepository.lastError().isEmpty()) {
             databaseReady = false;
             databaseStatus = QStringLiteral("Library load failed: %1").arg(mediaRepository.lastError());

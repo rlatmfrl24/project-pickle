@@ -1,7 +1,7 @@
 #include "app/ScanController.h"
 
 #include "application/ScanLibraryUseCase.h"
-#include "core/CancellationToken.h"
+#include "domain/CancellationToken.h"
 #include "db/MediaRepository.h"
 #include "db/ScopedDatabaseConnection.h"
 #include "media/ScanService.h"

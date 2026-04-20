@@ -21,6 +21,9 @@ public:
         const QVector<ScannedMediaFile> &files,
         MediaUpsertResult *result = nullptr) override;
 
+    QVector<MediaFile> fetchMediaFiles() override;
+    QVector<MediaFile> fetchMediaFiles(const MediaLibraryQuery &query) override;
+    MediaFile fetchMediaFileById(int mediaId) override;
     QVector<MediaLibraryItem> fetchLibraryItems() override;
     QVector<MediaLibraryItem> fetchLibraryItems(const MediaLibraryQuery &query) override;
     MediaLibraryItem fetchMediaById(int mediaId) override;

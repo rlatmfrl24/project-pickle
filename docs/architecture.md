@@ -103,13 +103,21 @@ QML
 - `AppController`
 - `LibraryController`
 - `ScanController`
+- `MetadataController`
+- `SnapshotController`
+- `ThumbnailController`
+- `SettingsController`
+- `DiagnosticsController`
+- `MediaActionsController`
+- `WorkEventLog`
+- `MediaItemPresenter`
 - `LibraryReloadService`
 - `MediaLibraryModel`
 - `PlaybackController`
 
-개선 방향:
-- `AppController`는 facade로 축소한다.
-- 기능별 coordinator는 `LibraryController`, `ScanController`, `MetadataController`, `SnapshotController`, `ThumbnailController`, `SettingsController`, `DiagnosticsController`로 분리한다.
+현재 상태:
+- `AppController`는 QML API, command forwarding, signal bridge 중심의 facade로 축소되었다.
+- 기능별 orchestration은 `LibraryController`, `ScanController`, `MetadataController`, `SnapshotController`, `ThumbnailController`, `SettingsController`, `DiagnosticsController`, `MediaActionsController`로 분리되었다.
 - QML-facing 이름은 유지한다.
 
 ### 5.3 Application Layer
@@ -165,6 +173,8 @@ QML
 - query/result/value 타입
 
 현재 domain headers:
+- `AppSettingsPolicy.h`
+- `CancellationToken.h`
 - `MediaEntities.h`
 - `LibraryQuery.h`
 - `OperationResult.h`
@@ -208,9 +218,10 @@ QML
 ### 6.2 라이브러리 조회 흐름
 
 1. 검색/sort 변경이 `MediaLibraryQuery`로 변환된다.
-2. `LoadLibraryUseCase`가 `IMediaRepository::fetchLibraryItems(query)`를 호출한다.
-3. generation id로 오래된 async 결과가 최신 model을 덮지 못하게 한다.
-4. Presentation이 role/QML 표시용 값으로 노출한다.
+2. repository는 raw `MediaFile` entity를 조회한다.
+3. `MediaItemPresenter`가 파일 크기, duration, codec, bitrate, framerate, thumbnail path filtering을 QML/model 표시값으로 변환한다.
+4. generation id로 오래된 async 결과가 최신 model을 덮지 못하게 한다.
+5. Presentation이 role/QML 표시용 값으로 노출한다.
 
 ### 6.3 편집 흐름
 
@@ -284,6 +295,10 @@ QML
 - M15: details/flags/playback/rename use case 검사
 - M16: infrastructure adapter가 ports 뒤에 남아 있는지 검사
 - M17: QML-facing facade와 model role compatibility 검사
+- M18: settings/diagnostics controller, external tool resolver, diagnostic redaction, work event ring buffer 검사
+- M19: raw repository fetch와 presentation mapper 분리, unsafe thumbnail path suppression, single-row model refresh 검사
+- M20: `ports -> core` 제거, source folder ownership, forbidden include/link closure 검사
+- M21: AppController facade line budget와 QML API 안정성 검사
 
 성능 검증:
 - M11 synthetic 50k 테스트를 유지한다.
@@ -310,9 +325,12 @@ M16 완료 기준:
 - metadata/snapshot/thumbnail/process/filesystem adapter를 ports 뒤로 이동
 - cancellation, timeout, output cap, managed root guard 유지
 
-M17 목표:
-- settings/diagnostics 분리
+M17-M21 완료 기준:
+- settings/diagnostics/media action controller 분리
 - feature coordinator 도입
+- repository raw entity와 presentation mapper 분리
+- cancellation boundary를 domain으로 이동하고 `ports -> core` 의존 제거
+- architecture guard를 target link graph와 source ownership 검사로 강화
 - `AppController.cpp`를 500줄 이하 facade로 축소
 
 ## 12. Compatibility Layer
@@ -327,10 +345,18 @@ M17 목표:
 
 ## 13. 후속 반영 이슈
 
-다음 항목은 현재 빌드 안정성을 유지하기 위해 단계적으로 처리한다.
+클린 아키텍처 마무리 단계에서 문서화되어 있던 필수 TODO는 닫혔다.
 
-- `AppController.cpp`는 `LibraryController`/`ScanController` 분리 후에도 아직 facade라고 보기에는 크다. `MetadataController`, `SnapshotController`, `ThumbnailController`, `SettingsController`, `DiagnosticsController`를 추가로 분리해 500줄 이하 facade를 목표로 한다.
-- `ports` 일부는 cancellation 처리를 위해 `core/CancellationToken`에 의존한다. 장기적으로 application/ports 경계에 더 얇은 cancellation interface 또는 value type을 두어 `pickle_ports -> pickle_core` 의존을 줄인다.
-- `MediaRepository`는 아직 persistence record와 UI-facing `MediaLibraryItem` 조립을 함께 수행한다. repository는 raw persistence record를 반환하고, presentation mapper가 QML/model 표시용 DTO를 만드는 방향으로 분리한다.
-- metadata, snapshot, thumbnail rebuild의 QtConcurrent job orchestration은 아직 `AppController`에 남아 있다. 다음 feature controller로 모아 `AppController`가 상태 반영만 담당하게 한다.
-- M13 architecture boundary test는 금지 include 중심의 최소 가드다. target link graph와 source folder ownership을 더 정밀하게 검사하는 방식으로 확장한다.
+완료된 closure:
+- `AppController.cpp`는 500줄 이하 facade로 축소되었다.
+- settings 저장, external tool validation, diagnostic report 생성은 전용 controller로 분리되었다.
+- media details, rename, favorite/delete candidate, playback, snapshot/thumbnail result 반영은 `MediaActionsController`로 이동했다.
+- `CancellationToken`은 domain boundary로 이동했고 `pickle_ports`는 `pickle_core`에 의존하지 않는다.
+- repository raw fetch와 `MediaItemPresenter` 기반 presentation DTO 변환 경로가 추가되었다.
+- M18-M21 architecture/presentation regression tests가 closure 상태를 검증한다.
+
+제품 확장 future note:
+- FTS5 기반 검색 스키마는 현재 LIKE + debounce + worker query가 5만 파일 목표를 충족하지 못할 때 검토한다.
+- QML visual redesign과 screenshot smoke test는 UI 레이아웃이 안정화된 뒤 별도 milestone로 진행한다.
+- cloud/account/sandbox 기능은 현재 Windows-first local-only 제품 범위 밖이다.
+- 실제 ffmpeg/ffprobe 성공 path와 Qt Multimedia playback smoke는 로컬 도구와 샘플 미디어가 명시된 환경에서 optional integration으로 추가한다.
