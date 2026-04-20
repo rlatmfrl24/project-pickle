@@ -5,7 +5,7 @@ project(pickle VERSION 0.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Multimedia Sql Concurrent QuickDialogs2 Test)
+find_package(Qt6 REQUIRED COMPONENTS Quick Multimedia Sql Concurrent QuickDialogs2 Test Gui)
 
 include(GNUInstallDirs)
 
@@ -25,6 +25,16 @@ qt_add_executable(apppickle
     src/main.cpp
     src/app/AppController.cpp
     src/app/AppController.h
+    src/core/AppLogger.cpp
+    src/core/AppLogger.h
+    src/core/CancellationToken.cpp
+    src/core/CancellationToken.h
+    src/core/ExternalToolService.cpp
+    src/core/ExternalToolService.h
+    src/core/ProcessRunner.cpp
+    src/core/ProcessRunner.h
+    src/db/AppSettingsRepository.cpp
+    src/db/AppSettingsRepository.h
     src/db/DatabaseService.cpp
     src/db/DatabaseService.h
     src/db/MediaRepository.cpp
@@ -34,10 +44,18 @@ qt_add_executable(apppickle
     src/media/MediaTypes.h
     src/media/MediaLibraryModel.cpp
     src/media/MediaLibraryModel.h
+    src/media/MetadataService.cpp
+    src/media/MetadataService.h
     src/media/PlaybackController.cpp
     src/media/PlaybackController.h
+    src/media/RenameService.cpp
+    src/media/RenameService.h
     src/media/ScanService.cpp
     src/media/ScanService.h
+    src/media/SnapshotService.cpp
+    src/media/SnapshotService.h
+    src/media/ThumbnailService.cpp
+    src/media/ThumbnailService.h
 )
 
 qt_add_qml_module(apppickle
@@ -69,16 +87,23 @@ target_link_libraries(apppickle
         Qt6::Sql
         Qt6::Concurrent
         Qt6::QuickDialogs2
+        Qt6::Gui
 )
 
 target_include_directories(apppickle
     PRIVATE src
 )
 
+target_compile_definitions(apppickle
+    PRIVATE PICKLE_VERSION="${PROJECT_VERSION}"
+)
+
 enable_testing()
 
 qt_add_executable(m03_scan_repository_test
     tests/M03ScanRepositoryTest.cpp
+    src/core/CancellationToken.cpp
+    src/core/CancellationToken.h
     src/db/MediaRepository.cpp
     src/db/MediaRepository.h
     src/db/MigrationService.cpp
@@ -105,17 +130,35 @@ qt_add_executable(m04_library_query_test
     tests/M04LibraryQueryTest.cpp
     src/app/AppController.cpp
     src/app/AppController.h
+    src/core/AppLogger.cpp
+    src/core/AppLogger.h
+    src/core/CancellationToken.cpp
+    src/core/CancellationToken.h
+    src/core/ExternalToolService.cpp
+    src/core/ExternalToolService.h
+    src/core/ProcessRunner.cpp
+    src/core/ProcessRunner.h
+    src/db/AppSettingsRepository.cpp
+    src/db/AppSettingsRepository.h
     src/db/MediaRepository.cpp
     src/db/MediaRepository.h
     src/db/MigrationService.cpp
     src/db/MigrationService.h
     src/media/MediaLibraryModel.cpp
     src/media/MediaLibraryModel.h
+    src/media/MetadataService.cpp
+    src/media/MetadataService.h
     src/media/MediaTypes.h
     src/media/PlaybackController.cpp
     src/media/PlaybackController.h
+    src/media/RenameService.cpp
+    src/media/RenameService.h
     src/media/ScanService.cpp
     src/media/ScanService.h
+    src/media/SnapshotService.cpp
+    src/media/SnapshotService.h
+    src/media/ThumbnailService.cpp
+    src/media/ThumbnailService.h
 )
 
 target_link_libraries(m04_library_query_test
@@ -124,6 +167,7 @@ target_link_libraries(m04_library_query_test
         Qt6::Sql
         Qt6::Concurrent
         Qt6::Test
+        Qt6::Gui
 )
 
 target_include_directories(m04_library_query_test
@@ -131,6 +175,194 @@ target_include_directories(m04_library_query_test
 )
 
 add_test(NAME m04_library_query_test COMMAND m04_library_query_test)
+
+qt_add_executable(m06_metadata_details_test
+    tests/M06MetadataDetailsTest.cpp
+    src/core/CancellationToken.cpp
+    src/core/CancellationToken.h
+    src/core/ProcessRunner.cpp
+    src/core/ProcessRunner.h
+    src/db/MediaRepository.cpp
+    src/db/MediaRepository.h
+    src/db/MigrationService.cpp
+    src/db/MigrationService.h
+    src/media/MediaTypes.h
+    src/media/MetadataService.cpp
+    src/media/MetadataService.h
+)
+
+target_link_libraries(m06_metadata_details_test
+    PRIVATE
+        Qt6::Core
+        Qt6::Sql
+        Qt6::Test
+)
+
+target_include_directories(m06_metadata_details_test
+    PRIVATE src
+)
+
+add_test(NAME m06_metadata_details_test COMMAND m06_metadata_details_test)
+
+qt_add_executable(m07_file_management_test
+    tests/M07FileManagementTest.cpp
+    src/app/AppController.cpp
+    src/app/AppController.h
+    src/core/AppLogger.cpp
+    src/core/AppLogger.h
+    src/core/CancellationToken.cpp
+    src/core/CancellationToken.h
+    src/core/ExternalToolService.cpp
+    src/core/ExternalToolService.h
+    src/core/ProcessRunner.cpp
+    src/core/ProcessRunner.h
+    src/db/AppSettingsRepository.cpp
+    src/db/AppSettingsRepository.h
+    src/db/MediaRepository.cpp
+    src/db/MediaRepository.h
+    src/db/MigrationService.cpp
+    src/db/MigrationService.h
+    src/media/MediaLibraryModel.cpp
+    src/media/MediaLibraryModel.h
+    src/media/MediaTypes.h
+    src/media/MetadataService.cpp
+    src/media/MetadataService.h
+    src/media/RenameService.cpp
+    src/media/RenameService.h
+    src/media/ScanService.cpp
+    src/media/ScanService.h
+    src/media/SnapshotService.cpp
+    src/media/SnapshotService.h
+    src/media/ThumbnailService.cpp
+    src/media/ThumbnailService.h
+)
+
+target_link_libraries(m07_file_management_test
+    PRIVATE
+        Qt6::Core
+        Qt6::Sql
+        Qt6::Concurrent
+        Qt6::Test
+        Qt6::Gui
+)
+
+target_include_directories(m07_file_management_test
+    PRIVATE src
+)
+
+add_test(NAME m07_file_management_test COMMAND m07_file_management_test)
+
+qt_add_executable(m08_snapshot_thumbnail_test
+    tests/M08SnapshotThumbnailTest.cpp
+    src/core/CancellationToken.cpp
+    src/core/CancellationToken.h
+    src/core/ProcessRunner.cpp
+    src/core/ProcessRunner.h
+    src/db/MediaRepository.cpp
+    src/db/MediaRepository.h
+    src/db/MigrationService.cpp
+    src/db/MigrationService.h
+    src/media/MediaLibraryModel.cpp
+    src/media/MediaLibraryModel.h
+    src/media/MediaTypes.h
+    src/media/SnapshotService.cpp
+    src/media/SnapshotService.h
+    src/media/ThumbnailService.cpp
+    src/media/ThumbnailService.h
+)
+
+target_link_libraries(m08_snapshot_thumbnail_test
+    PRIVATE
+        Qt6::Core
+        Qt6::Sql
+        Qt6::Test
+        Qt6::Gui
+)
+
+target_include_directories(m08_snapshot_thumbnail_test
+    PRIVATE src
+)
+
+add_test(NAME m08_snapshot_thumbnail_test COMMAND m08_snapshot_thumbnail_test)
+
+qt_add_executable(m09_quality_performance_test
+    tests/M09QualityPerformanceTest.cpp
+    src/core/CancellationToken.cpp
+    src/core/CancellationToken.h
+    src/core/ProcessRunner.cpp
+    src/core/ProcessRunner.h
+    src/db/MediaRepository.cpp
+    src/db/MediaRepository.h
+    src/db/MigrationService.cpp
+    src/db/MigrationService.h
+    src/media/MediaTypes.h
+    src/media/ScanService.cpp
+    src/media/ScanService.h
+    src/media/ThumbnailService.cpp
+    src/media/ThumbnailService.h
+)
+
+target_link_libraries(m09_quality_performance_test
+    PRIVATE
+        Qt6::Core
+        Qt6::Sql
+        Qt6::Test
+        Qt6::Gui
+)
+
+target_include_directories(m09_quality_performance_test
+    PRIVATE src
+)
+
+add_test(NAME m09_quality_performance_test COMMAND m09_quality_performance_test)
+
+qt_add_executable(m10_settings_diagnostics_test
+    tests/M10SettingsDiagnosticsTest.cpp
+    src/app/AppController.cpp
+    src/app/AppController.h
+    src/core/AppLogger.cpp
+    src/core/AppLogger.h
+    src/core/CancellationToken.cpp
+    src/core/CancellationToken.h
+    src/core/ExternalToolService.cpp
+    src/core/ExternalToolService.h
+    src/core/ProcessRunner.cpp
+    src/core/ProcessRunner.h
+    src/db/AppSettingsRepository.cpp
+    src/db/AppSettingsRepository.h
+    src/db/MediaRepository.cpp
+    src/db/MediaRepository.h
+    src/db/MigrationService.cpp
+    src/db/MigrationService.h
+    src/media/MediaLibraryModel.cpp
+    src/media/MediaLibraryModel.h
+    src/media/MediaTypes.h
+    src/media/MetadataService.cpp
+    src/media/MetadataService.h
+    src/media/RenameService.cpp
+    src/media/RenameService.h
+    src/media/ScanService.cpp
+    src/media/ScanService.h
+    src/media/SnapshotService.cpp
+    src/media/SnapshotService.h
+    src/media/ThumbnailService.cpp
+    src/media/ThumbnailService.h
+)
+
+target_link_libraries(m10_settings_diagnostics_test
+    PRIVATE
+        Qt6::Core
+        Qt6::Sql
+        Qt6::Concurrent
+        Qt6::Test
+        Qt6::Gui
+)
+
+target_include_directories(m10_settings_diagnostics_test
+    PRIVATE src
+)
+
+add_test(NAME m10_settings_diagnostics_test COMMAND m10_settings_diagnostics_test)
 
 install(TARGETS apppickle
     BUNDLE DESTINATION .

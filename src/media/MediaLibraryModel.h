@@ -20,12 +20,20 @@ public:
         DurationMsRole,
         ResolutionRole,
         CodecRole,
+        BitrateRole,
+        BitrateBpsRole,
+        FrameRateRole,
+        FrameRateValueRole,
         DescriptionRole,
         TagsRole,
         ReviewStatusRole,
         RatingRole,
         ModifiedAtRole,
-        ThumbnailPathRole
+        ThumbnailPathRole,
+        IsFavoriteRole,
+        IsDeleteCandidateRole,
+        LastPositionMsRole,
+        LastPlayedAtRole
     };
 
     explicit MediaLibraryModel(QObject *parent = nullptr);
@@ -39,6 +47,10 @@ public:
     Q_INVOKABLE int indexOfId(int mediaId) const;
 
     void setItems(QVector<MediaLibraryItem> items);
+    bool setFavorite(int mediaId, bool enabled);
+    bool setDeleteCandidate(int mediaId, bool enabled);
+    bool setPlaybackPosition(int mediaId, qint64 positionMs, const QString &playedAt);
+    bool setThumbnailPath(int mediaId, const QString &thumbnailPath);
 
 private:
     QVariant valueForRole(const MediaLibraryItem &item, int role) const;

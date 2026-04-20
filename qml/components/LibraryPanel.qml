@@ -16,6 +16,8 @@ Rectangle {
     property string libraryStatus: ""
 
     signal selected(int index)
+    signal activated(int index)
+    signal renameRequested(int index)
     signal searchRequested(string searchText)
     signal sortKeyRequested(string sortKey)
     signal sortAscendingRequested(bool ascending)
@@ -37,6 +39,20 @@ Rectangle {
     color: "#171b24"
     border.color: "#283040"
     border.width: 1
+    focus: true
+
+    function requestRenameCurrent() {
+        if (root.currentIndex >= 0) {
+            root.renameRequested(root.currentIndex)
+        }
+    }
+
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_F2) {
+            root.requestRenameCurrent()
+            event.accepted = true
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -108,6 +124,15 @@ Rectangle {
             model: root.model
             currentIndex: root.currentIndex
             boundsBehavior: Flickable.StopAtBounds
+            focus: true
+            reuseItems: true
+
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_F2) {
+                    root.requestRenameCurrent()
+                    event.accepted = true
+                }
+            }
 
             delegate: Rectangle {
                 id: row
@@ -119,14 +144,18 @@ Rectangle {
                 required property string reviewStatus
                 required property int rating
                 required property string thumbnailPath
+                required property bool isFavorite
+                required property bool isDeleteCandidate
 
                 readonly property bool selected: root.currentIndex === row.index
 
                 width: ListView.view.width
                 height: 72
                 radius: 6
-                color: selected ? "#243348" : (mouseArea.containsMouse ? "#1d2431" : "#141922")
-                border.color: selected ? "#5ab0ff" : "transparent"
+                color: selected
+                    ? "#243348"
+                    : (row.isDeleteCandidate ? "#251b22" : (mouseArea.containsMouse ? "#1d2431" : "#141922"))
+                border.color: selected ? "#5ab0ff" : (row.isFavorite ? "#e0b04c" : "transparent")
                 border.width: 1
 
                 RowLayout {
@@ -144,10 +173,13 @@ Rectangle {
 
                         Image {
                             anchors.fill: parent
-                            source: root.thumbnailSource(row.thumbnailPath)
-                            visible: row.thumbnailPath.length > 0
+                            source: root.showThumbnails ? root.thumbnailSource(row.thumbnailPath) : ""
+                            sourceSize.width: 92
+                            sourceSize.height: 92
+                            visible: root.showThumbnails && row.thumbnailPath.length > 0
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
+                            cache: true
                         }
 
                         Label {
@@ -183,8 +215,10 @@ Rectangle {
                     }
 
                     Label {
-                        text: row.reviewStatus
-                        color: row.selected ? "#d6e7ff" : "#9fb0c5"
+                        text: (row.isFavorite ? qsTr("Fav ") : "")
+                            + (row.isDeleteCandidate ? qsTr("Delete ") : "")
+                            + row.reviewStatus
+                        color: row.isDeleteCandidate ? "#ffb4a8" : (row.selected ? "#d6e7ff" : "#9fb0c5")
                         font.pixelSize: 12
                     }
                 }
@@ -194,7 +228,15 @@ Rectangle {
 
                     anchors.fill: parent
                     hoverEnabled: true
-                    onClicked: root.selected(row.index)
+                    acceptedButtons: Qt.LeftButton
+                    onClicked: {
+                        listView.forceActiveFocus()
+                        root.selected(row.index)
+                    }
+                    onDoubleClicked: {
+                        listView.forceActiveFocus()
+                        root.activated(row.index)
+                    }
                 }
             }
 

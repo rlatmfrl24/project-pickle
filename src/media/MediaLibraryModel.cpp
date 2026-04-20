@@ -37,12 +37,20 @@ QHash<int, QByteArray> MediaLibraryModel::roleNames() const
         {DurationMsRole, "durationMs"},
         {ResolutionRole, "resolution"},
         {CodecRole, "codec"},
+        {BitrateRole, "bitrate"},
+        {BitrateBpsRole, "bitrateBps"},
+        {FrameRateRole, "frameRate"},
+        {FrameRateValueRole, "frameRateValue"},
         {DescriptionRole, "description"},
         {TagsRole, "tags"},
         {ReviewStatusRole, "reviewStatus"},
         {RatingRole, "rating"},
         {ModifiedAtRole, "modifiedAt"},
         {ThumbnailPathRole, "thumbnailPath"},
+        {IsFavoriteRole, "isFavorite"},
+        {IsDeleteCandidateRole, "isDeleteCandidate"},
+        {LastPositionMsRole, "lastPositionMs"},
+        {LastPlayedAtRole, "lastPlayedAt"},
     };
 }
 
@@ -86,6 +94,59 @@ void MediaLibraryModel::setItems(QVector<MediaLibraryItem> items)
     endResetModel();
 }
 
+bool MediaLibraryModel::setFavorite(int mediaId, bool enabled)
+{
+    const int row = indexOfId(mediaId);
+    if (row < 0 || m_items[row].isFavorite == enabled) {
+        return row >= 0;
+    }
+
+    m_items[row].isFavorite = enabled;
+    const QModelIndex modelIndex = index(row);
+    emit dataChanged(modelIndex, modelIndex, {IsFavoriteRole});
+    return true;
+}
+
+bool MediaLibraryModel::setDeleteCandidate(int mediaId, bool enabled)
+{
+    const int row = indexOfId(mediaId);
+    if (row < 0 || m_items[row].isDeleteCandidate == enabled) {
+        return row >= 0;
+    }
+
+    m_items[row].isDeleteCandidate = enabled;
+    const QModelIndex modelIndex = index(row);
+    emit dataChanged(modelIndex, modelIndex, {IsDeleteCandidateRole});
+    return true;
+}
+
+bool MediaLibraryModel::setPlaybackPosition(int mediaId, qint64 positionMs, const QString &playedAt)
+{
+    const int row = indexOfId(mediaId);
+    if (row < 0) {
+        return false;
+    }
+
+    m_items[row].lastPositionMs = positionMs;
+    m_items[row].lastPlayedAt = playedAt;
+    const QModelIndex modelIndex = index(row);
+    emit dataChanged(modelIndex, modelIndex, {LastPositionMsRole, LastPlayedAtRole});
+    return true;
+}
+
+bool MediaLibraryModel::setThumbnailPath(int mediaId, const QString &thumbnailPath)
+{
+    const int row = indexOfId(mediaId);
+    if (row < 0 || m_items[row].thumbnailPath == thumbnailPath) {
+        return row >= 0;
+    }
+
+    m_items[row].thumbnailPath = thumbnailPath;
+    const QModelIndex modelIndex = index(row);
+    emit dataChanged(modelIndex, modelIndex, {ThumbnailPathRole});
+    return true;
+}
+
 QVariant MediaLibraryModel::valueForRole(const MediaLibraryItem &item, int role) const
 {
     switch (role) {
@@ -107,6 +168,14 @@ QVariant MediaLibraryModel::valueForRole(const MediaLibraryItem &item, int role)
         return item.resolution;
     case CodecRole:
         return item.codec;
+    case BitrateRole:
+        return item.bitrate;
+    case BitrateBpsRole:
+        return item.bitrateBps;
+    case FrameRateRole:
+        return item.frameRate;
+    case FrameRateValueRole:
+        return item.frameRateValue;
     case DescriptionRole:
         return item.description;
     case TagsRole:
@@ -119,6 +188,14 @@ QVariant MediaLibraryModel::valueForRole(const MediaLibraryItem &item, int role)
         return item.modifiedAt;
     case ThumbnailPathRole:
         return item.thumbnailPath;
+    case IsFavoriteRole:
+        return item.isFavorite;
+    case IsDeleteCandidateRole:
+        return item.isDeleteCandidate;
+    case LastPositionMsRole:
+        return item.lastPositionMs;
+    case LastPlayedAtRole:
+        return item.lastPlayedAt;
     default:
         return {};
     }
@@ -136,11 +213,19 @@ QVariantMap MediaLibraryModel::toMap(const MediaLibraryItem &item) const
         {"durationMs", item.durationMs},
         {"resolution", item.resolution},
         {"codec", item.codec},
+        {"bitrate", item.bitrate},
+        {"bitrateBps", item.bitrateBps},
+        {"frameRate", item.frameRate},
+        {"frameRateValue", item.frameRateValue},
         {"description", item.description},
         {"tags", item.tags},
         {"reviewStatus", item.reviewStatus},
         {"rating", item.rating},
         {"modifiedAt", item.modifiedAt},
         {"thumbnailPath", item.thumbnailPath},
+        {"isFavorite", item.isFavorite},
+        {"isDeleteCandidate", item.isDeleteCandidate},
+        {"lastPositionMs", item.lastPositionMs},
+        {"lastPlayedAt", item.lastPlayedAt},
     };
 }

@@ -5,6 +5,8 @@
 #include <QVariant>
 
 #include "app/AppController.h"
+#include "core/AppLogger.h"
+#include "db/AppSettingsRepository.h"
 #include "db/DatabaseService.h"
 #include "db/MediaRepository.h"
 #include "db/MigrationService.h"
@@ -16,6 +18,10 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("Pickle"));
     QCoreApplication::setOrganizationName(QStringLiteral("Pickle"));
+#ifdef PICKLE_VERSION
+    QCoreApplication::setApplicationVersion(QStringLiteral(PICKLE_VERSION));
+#endif
+    AppLogger::initialize();
 
     MediaLibraryModel mediaLibraryModel;
 
@@ -34,15 +40,34 @@ int main(int argc, char *argv[])
     }
 
     MediaRepository mediaRepository(databaseService.database());
+    AppSettingsRepository settingsRepository(databaseService.database());
+    AppSettings appSettings;
     if (databaseReady) {
-        mediaLibraryModel.setItems(mediaRepository.fetchLibraryItems());
+        appSettings = settingsRepository.load();
+        if (!settingsRepository.lastError().isEmpty()) {
+            qWarning() << "Settings load failed:" << settingsRepository.lastError();
+        }
+    }
+
+    if (databaseReady) {
+        MediaLibraryQuery query;
+        if (appSettings.sortKey == QStringLiteral("size")) {
+            query.sortKey = MediaLibrarySortKey::Size;
+        } else if (appSettings.sortKey == QStringLiteral("modified")) {
+            query.sortKey = MediaLibrarySortKey::Modified;
+        }
+        query.ascending = appSettings.sortAscending;
+        mediaLibraryModel.setItems(mediaRepository.fetchLibraryItems(query));
         if (!mediaRepository.lastError().isEmpty()) {
             databaseReady = false;
             databaseStatus = QStringLiteral("Library load failed: %1").arg(mediaRepository.lastError());
         }
     }
 
-    AppController appController(&mediaLibraryModel, databaseReady ? &mediaRepository : nullptr);
+    AppController appController(
+        &mediaLibraryModel,
+        databaseReady ? &mediaRepository : nullptr,
+        databaseReady ? &settingsRepository : nullptr);
     appController.setDatabaseState(databaseReady, databaseStatus, databaseService.databasePath());
     PlaybackController playbackController;
     playbackController.setMedia(appController.selectedMedia());
