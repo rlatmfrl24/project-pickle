@@ -250,6 +250,26 @@ MediaActionResult MediaActionsController::savePlaybackPosition(
     return action;
 }
 
+MediaActionResult MediaActionsController::refreshMediaFromRepository(int mediaId)
+{
+    MediaActionResult action;
+    if (mediaId <= 0 || !m_repository || !m_model) {
+        return action;
+    }
+
+    const MediaLibraryItem item = m_repository->fetchMediaById(mediaId);
+    if (item.id <= 0) {
+        const QString error = m_repository->lastError();
+        if (!error.isEmpty()) {
+            action.status = QStringLiteral("Media refresh failed: %1").arg(error);
+        }
+        return action;
+    }
+
+    action.selectedMediaChanged = m_model->replaceItem(mediaId, item);
+    return action;
+}
+
 MediaActionResult MediaActionsController::applySnapshotResult(const SnapshotCaptureResult &result)
 {
     MediaActionResult action;

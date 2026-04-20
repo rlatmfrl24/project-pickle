@@ -13,6 +13,8 @@ class M21AppControllerFacadeClosureTest : public QObject
 private slots:
     void qmlFacingApiRemainsStableAfterFacadeSplit();
     void appControllerSourceStaysThinAndFreeOfDirectInfrastructure();
+    void playerPageLoadsMediaOnlyOnExplicitPlayback();
+    void infoPanelCoercesNumericDraftValuesSafely();
 };
 
 namespace {
@@ -115,6 +117,32 @@ void M21AppControllerFacadeClosureTest::appControllerSourceStaysThinAndFreeOfDir
     const QRegularExpression forbidden(QStringLiteral(R"(QDesktopServices|QTextStream|ExternalToolService|AppSettingsRepository|#include\s*\"db/MediaRepository|QFutureWatcher|QtConcurrent)"));
     QVERIFY2(!source.contains(forbidden), "AppController.cpp has a direct infrastructure dependency");
     QVERIFY2(!header.contains(forbidden), "AppController.h has a direct infrastructure dependency");
+}
+
+void M21AppControllerFacadeClosureTest::playerPageLoadsMediaOnlyOnExplicitPlayback()
+{
+    const QString playerPage = readTextFile(sourcePath(QStringLiteral("qml/pages/PlayerPage.qml")));
+    const QString playbackBar = readTextFile(sourcePath(QStringLiteral("qml/components/PlaybackBar.qml")));
+    const QString mainQml = readTextFile(sourcePath(QStringLiteral("qml/Main.qml")));
+    QVERIFY2(!playerPage.isEmpty(), "Could not read PlayerPage.qml");
+    QVERIFY2(!playbackBar.isEmpty(), "Could not read PlaybackBar.qml");
+    QVERIFY2(!mainQml.isEmpty(), "Could not read Main.qml");
+
+    QVERIFY2(!playerPage.contains(QStringLiteral("Component.onCompleted: loadSelectedSource")), "PlayerPage should not load the selected file on startup");
+    QVERIFY2(!playerPage.contains(QStringLiteral("root.loadSelectedSource()")), "Selection changes should release the loaded source instead of loading the next one");
+    QVERIFY2(playerPage.contains(QStringLiteral("function playLoadedSource()")), "PlayerPage must keep explicit playback loading");
+    QVERIFY2(playerPage.contains(QStringLiteral("root.syncSelectedSource()")), "Explicit playback should still load the selected source");
+    QVERIFY2(playbackBar.contains(QStringLiteral("property var playerPage")), "PlaybackBar should delegate playback commands to PlayerPage");
+    QVERIFY2(mainQml.contains(QStringLiteral("playerPage: playerPage")), "Main.qml should wire PlaybackBar to PlayerPage");
+}
+
+void M21AppControllerFacadeClosureTest::infoPanelCoercesNumericDraftValuesSafely()
+{
+    const QString infoPanel = readTextFile(sourcePath(QStringLiteral("qml/components/InfoPanel.qml")));
+    QVERIFY2(!infoPanel.isEmpty(), "Could not read InfoPanel.qml");
+
+    QVERIFY2(infoPanel.contains(QStringLiteral("Number.isFinite(ratingValue) ? ratingValue : 0")),
+             "InfoPanel should guard SpinBox values against undefined or non-finite media data");
 }
 
 QTEST_MAIN(M21AppControllerFacadeClosureTest)

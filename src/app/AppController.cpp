@@ -15,6 +15,7 @@
 #include "ports/IMediaRepository.h"
 
 #include <QMetaObject>
+#include <QFileInfo>
 
 #include <algorithm>
 #include <memory>
@@ -51,6 +52,26 @@ bool statusLooksLikeWarning(const QString &status)
         || text.contains(QStringLiteral("could not"))
         || text.contains(QStringLiteral("unavailable"));
 }
+
+bool containsMediaId(const std::vector<int> &mediaIds, int mediaId)
+{
+    return std::find(mediaIds.cbegin(), mediaIds.cend(), mediaId) != mediaIds.cend();
+}
+
+void appendMediaIdOnce(std::vector<int> *mediaIds, int mediaId)
+{
+    if (mediaId > 0 && mediaIds && !containsMediaId(*mediaIds, mediaId)) {
+        mediaIds->push_back(mediaId);
+    }
+}
+
+void removeMediaId(std::vector<int> *mediaIds, int mediaId)
+{
+    if (!mediaIds) {
+        return;
+    }
+    mediaIds->erase(std::remove(mediaIds->begin(), mediaIds->end(), mediaId), mediaIds->end());
+}
 }
 
 AppController::AppController(
@@ -85,9 +106,9 @@ AppController::AppController(
     connect(m_scanController.get(), &ScanController::scanFinished, this, &AppController::handleScanFinished);
     connect(m_libraryController.get(), &LibraryController::statusChanged, this, &AppController::setLibraryStatus);
     connect(m_libraryController.get(), &LibraryController::loadFinished, this, &AppController::handleLibraryReloadFinished);
-    connect(m_metadataController.get(), &MetadataController::extractionRejected, this, [this](const QString &status) { setMetadataState(false, status); });
-    connect(m_metadataController.get(), &MetadataController::extractionStarted, this, [this](const QString &status) { setMetadataState(true, status); });
-    connect(m_metadataController.get(), &MetadataController::extractionFinished, this, &AppController::handleMetadataFinished);
+    connect(m_metadataController.get(), &MetadataController::extractionRejected, this, [this](const QString &status) { if (!m_shuttingDown) setMetadataState(false, status); }, Qt::QueuedConnection);
+    connect(m_metadataController.get(), &MetadataController::extractionStarted, this, [this](const QString &status) { if (!m_shuttingDown) setMetadataState(true, status); }, Qt::QueuedConnection);
+    connect(m_metadataController.get(), &MetadataController::extractionFinished, this, &AppController::handleMetadataFinished, Qt::QueuedConnection);
     connect(m_snapshotController.get(), &SnapshotController::captureRejected, this, [this](const QString &status) { setSnapshotState(false, status); });
     connect(m_snapshotController.get(), &SnapshotController::captureStarted, this, [this](const QString &status) { setSnapshotState(true, status); });
     connect(m_snapshotController.get(), &SnapshotController::captureFinished, this, &AppController::handleSnapshotFinished);
@@ -99,6 +120,8 @@ AppController::AppController(
 
 AppController::~AppController()
 {
+    m_shuttingDown = true;
+    m_autoMetadataQueued = false;
     cancelActiveWork();
     if (m_scanController) m_scanController->waitForFinished();
     if (m_libraryController) { m_libraryController->cancelPending(); m_libraryController->waitForFinished(); }
@@ -223,7 +246,7 @@ void AppController::resetLibrary()
     if (hasActiveBackgroundWork()) { setLibraryStatus(QStringLiteral("Wait for active work to finish before resetting the library.")); return; }
     const LibraryResetResult result = m_mediaActionsController->resetLibrary();
     if (!result.succeeded) { setLibraryStatus(result.libraryStatus); return; }
-    m_selectedIndex = -1; m_selectedMediaId = -1; m_autoMetadataQueued = false; m_currentScanRoot.clear(); m_autoMetadataFailures.clear();
+    m_selectedIndex = -1; m_selectedMediaId = -1; m_autoMetadataQueued = false; m_currentScanRoot.clear(); m_autoMetadataFailures.clear(); m_autoMetadataAttempted.clear();
     m_selectedSnapshots.clear(); m_scanVisitedCount = 0; m_scanFoundCount = 0; m_scanProgressText.clear();
     if (m_libraryController) m_libraryController->cancelPending();
     if (m_scanController) m_scanController->clearCurrentRoot();
@@ -274,10 +297,14 @@ void AppController::handleScanFinished(const ScanCommitResult &commitResult)
 
 void AppController::handleMetadataFinished(const MetadataControllerResult &controllerResult)
 {
+    if (m_shuttingDown) return;
     const MetadataExtractionResult result = controllerResult.extraction;
     if (result.canceled) { setMetadataState(false, QStringLiteral("Metadata canceled")); maybeStartAutoMetadataExtraction(); return; }
-    if (!result.succeeded) { if (!controllerResult.manual && controllerResult.mediaId > 0 && !m_autoMetadataFailures.contains(controllerResult.mediaId)) m_autoMetadataFailures.append(controllerResult.mediaId); setMetadataState(false, QStringLiteral("Metadata failed: %1").arg(result.errorMessage)); maybeStartAutoMetadataExtraction(); return; }
+    appendMediaIdOnce(&m_autoMetadataAttempted, controllerResult.mediaId);
+    if (!result.succeeded) { if (!controllerResult.manual) appendMediaIdOnce(&m_autoMetadataFailures, controllerResult.mediaId); setMetadataState(false, QStringLiteral("Metadata failed: %1").arg(result.errorMessage)); maybeStartAutoMetadataExtraction(); return; }
     if (!m_mediaRepository || !m_mediaRepository->updateMediaMetadata(controllerResult.mediaId, result.metadata)) { setMetadataState(false, QStringLiteral("Metadata DB update failed: %1").arg(m_mediaRepository ? m_mediaRepository->lastError() : QStringLiteral("repository unavailable"))); maybeStartAutoMetadataExtraction(); return; }
+    const MediaActionResult refresh = m_mediaActionsController->refreshMediaFromRepository(controllerResult.mediaId);
+    if (refresh.selectedMediaChanged && controllerResult.mediaId == m_selectedMediaId) emit selectedMediaChanged();
     requestLibraryReload(0);
     setMetadataState(false, QStringLiteral("Metadata updated"));
     maybeStartAutoMetadataExtraction();
@@ -299,17 +326,24 @@ void AppController::handleThumbnailMaintenanceFinished(const ThumbnailMaintenanc
 
 void AppController::maybeStartAutoMetadataExtraction()
 {
-    if (m_autoMetadataQueued || !m_databaseReady || !m_mediaRepository) return;
+    if (m_shuttingDown || m_autoMetadataQueued || !m_databaseReady || !m_mediaRepository) return;
     m_autoMetadataQueued = true;
-    QMetaObject::invokeMethod(this, [this]() { m_autoMetadataQueued = false; runAutoMetadataExtraction(); }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(this, [this]() {
+        if (m_shuttingDown) return;
+        m_autoMetadataQueued = false;
+        runAutoMetadataExtraction();
+    }, Qt::QueuedConnection);
 }
 
 void AppController::runAutoMetadataExtraction()
 {
-    if (!m_databaseReady || !m_mediaRepository || m_metadataInProgress || (m_metadataController && m_metadataController->isRunning())) return;
+    if (!m_databaseReady || !m_mediaRepository || m_metadataInProgress || m_scanInProgress || m_snapshotInProgress || m_thumbnailMaintenanceInProgress || (m_metadataController && m_metadataController->isRunning())) return;
     const QVariantMap media = selectedMedia();
     const int mediaId = media.value(QStringLiteral("id")).toInt();
-    if (mediaId <= 0 || m_autoMetadataFailures.contains(mediaId) || !mediaNeedsMetadata(media)) return;
+    const QString filePath = media.value(QStringLiteral("filePath")).toString();
+    if (filePath.isEmpty() || !QFileInfo(filePath).isFile()) return;
+    if (mediaId <= 0 || containsMediaId(m_autoMetadataAttempted, mediaId) || containsMediaId(m_autoMetadataFailures, mediaId) || !mediaNeedsMetadata(media)) return;
+    appendMediaIdOnce(&m_autoMetadataAttempted, mediaId);
     startMetadataExtraction(media, false);
 }
 
@@ -321,7 +355,7 @@ void AppController::startMetadataExtraction(const QVariantMap &media, bool manua
     if (!m_databaseReady || !m_mediaRepository) { setMetadataState(false, QStringLiteral("Database is not ready for metadata updates.")); return; }
     if (m_scanInProgress || m_snapshotInProgress || m_thumbnailMaintenanceInProgress) { setMetadataState(false, QStringLiteral("Wait for active work to finish before reading metadata.")); return; }
     if (m_metadataInProgress || (m_metadataController && m_metadataController->isRunning())) { setMetadataState(true, QStringLiteral("Metadata refresh already in progress")); return; }
-    if (manual) m_autoMetadataFailures.removeAll(mediaId);
+    if (manual) { removeMediaId(&m_autoMetadataFailures, mediaId); removeMediaId(&m_autoMetadataAttempted, mediaId); }
     if (m_metadataController) m_metadataController->startExtraction(mediaId, filePath, media.value(QStringLiteral("fileName")).toString(), manual, ffprobeProgram());
 }
 

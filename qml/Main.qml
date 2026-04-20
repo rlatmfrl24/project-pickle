@@ -654,7 +654,7 @@ ApplicationWindow {
         repeat: false
         onTriggered: {
             window.appController.renameSelectedMedia(window.pendingRenameBaseName)
-            playerPage.loadSelectedSource()
+            playerPage.releaseLoadedSource(false)
             window.pendingRenameBaseName = ""
         }
     }
@@ -768,6 +768,7 @@ ApplicationWindow {
                     appController: window.appController
                     mediaPlayer: playerPage.mediaPlayer
                     audioOutput: playerPage.audioOutput
+                    playerPage: playerPage
                 }
             }
 

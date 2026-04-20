@@ -41,8 +41,10 @@ Rectangle {
         root.restorePendingPosition()
     }
 
-    function releaseLoadedSource() {
-        root.persistPlaybackPosition()
+    function releaseLoadedSource(savePosition) {
+        if (savePosition === undefined || savePosition) {
+            root.persistPlaybackPosition()
+        }
         player.stop()
         root.pendingRestorePosition = 0
         player.source = ""
@@ -203,15 +205,14 @@ Rectangle {
         }
     }
 
-    Component.onCompleted: loadSelectedSource()
-    onPlaybackControllerChanged: loadSelectedSource()
+    onPlaybackControllerChanged: releaseLoadedSource(false)
 
     Connections {
         target: root.playbackController
         ignoreUnknownSignals: true
 
         function onSourceChanged() {
-            root.loadSelectedSource()
+            root.releaseLoadedSource(false)
         }
     }
 

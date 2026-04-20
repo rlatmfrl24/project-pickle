@@ -11,6 +11,7 @@ Rectangle {
     property var appController: null
     property var mediaPlayer: null
     property var audioOutput: null
+    property var playerPage: null
     property bool scrubbing: false
     property real scrubPosition: 0
 
@@ -71,6 +72,11 @@ Rectangle {
     }
 
     function togglePlayback() {
+        if (root.playerPage) {
+            root.playerPage.togglePlayback()
+            return
+        }
+
         if (!root.canPlay) {
             return
         }
@@ -89,6 +95,12 @@ Rectangle {
     }
 
     function stopPlayback() {
+        if (root.playerPage) {
+            root.playerPage.stopPlayback()
+            root.scrubbing = false
+            return
+        }
+
         if (!root.canPlay) {
             return
         }
@@ -102,6 +114,11 @@ Rectangle {
     }
 
     function seekBy(deltaMs) {
+        if (root.playerPage) {
+            root.playerPage.seekBy(deltaMs)
+            return
+        }
+
         if (!root.canSeek) {
             return
         }
@@ -111,6 +128,11 @@ Rectangle {
     }
 
     function persistPlaybackPosition() {
+        if (root.playerPage) {
+            root.playerPage.persistPlaybackPosition()
+            return
+        }
+
         if (!root.appController || !root.canPlay) {
             return
         }

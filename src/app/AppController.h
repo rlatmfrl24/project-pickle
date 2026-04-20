@@ -2,7 +2,6 @@
 
 #include "media/MediaTypes.h"
 
-#include <QList>
 #include <QObject>
 #include <QString>
 #include <QUrl>
@@ -10,6 +9,7 @@
 #include <QVariantMap>
 
 #include <memory>
+#include <vector>
 
 class DiagnosticsController;
 struct DiagnosticsContext;
@@ -214,6 +214,7 @@ private:
     int m_selectedIndex = 0;
     int m_selectedMediaId = -1;
     bool m_databaseReady = false;
+    bool m_shuttingDown = false;
     QString m_databaseStatus = QStringLiteral("DB not initialized");
     QString m_databasePath;
     bool m_scanInProgress = false;
@@ -229,6 +230,7 @@ private:
     QString m_libraryStatus = QStringLiteral("Library not loaded");
     bool m_metadataInProgress = false;
     bool m_autoMetadataQueued = false;
+    std::vector<int> m_autoMetadataAttempted;
     QString m_metadataStatus;
     QString m_detailStatus;
     QString m_fileActionStatus;
@@ -237,5 +239,5 @@ private:
     QVariantList m_selectedSnapshots;
     bool m_thumbnailMaintenanceInProgress = false;
     QString m_thumbnailMaintenanceStatus;
-    QList<int> m_autoMetadataFailures;
+    std::vector<int> m_autoMetadataFailures;
 };

@@ -9,6 +9,7 @@
 MetadataController::MetadataController(QObject *parent)
     : QObject(parent)
 {
+    qRegisterMetaType<MetadataControllerResult>("MetadataControllerResult");
     connect(&m_watcher, &QFutureWatcher<MetadataControllerResult>::finished, this, &MetadataController::handleFinished);
 }
 

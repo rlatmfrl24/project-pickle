@@ -49,7 +49,8 @@ Rectangle {
         root.draftMediaId = root.hasSelection ? root.media.id : -1
         descriptionEdit.text = root.displayValue("description", "")
         statusCombo.currentIndex = root.statusIndex(root.displayValue("reviewStatus", "unreviewed"))
-        ratingSpin.value = Number(root.displayValue("rating", 0))
+        const ratingValue = Number(root.displayValue("rating", 0))
+        ratingSpin.value = Number.isFinite(ratingValue) ? ratingValue : 0
         root.syncingFlags = true
         favoriteCheck.checked = Boolean(root.displayValue("isFavorite", false))
         deleteCandidateCheck.checked = Boolean(root.displayValue("isDeleteCandidate", false))

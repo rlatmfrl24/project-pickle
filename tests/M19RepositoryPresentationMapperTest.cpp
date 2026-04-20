@@ -1,4 +1,5 @@
 #include "TestSupport.h"
+#include "app/MediaActionsController.h"
 #include "app/MediaItemPresenter.h"
 #include "core/PathSecurity.h"
 #include "db/MediaRepository.h"
@@ -46,6 +47,7 @@ class M19RepositoryPresentationMapperTest : public QObject
 private slots:
     void repositoryReturnsRawMediaAndPresenterOwnsFormattingAndThumbnailFiltering();
     void modelSingleRowRefreshUsesPresentedItem();
+    void metadataRefreshUpdatesModelBeforeAsyncReload();
 };
 
 void M19RepositoryPresentationMapperTest::repositoryReturnsRawMediaAndPresenterOwnsFormattingAndThumbnailFiltering()
@@ -142,6 +144,45 @@ void M19RepositoryPresentationMapperTest::modelSingleRowRefreshUsesPresentedItem
     QCOMPARE(dataChangedSpy.first().at(1).toModelIndex().row(), 0);
     QCOMPARE(model.itemAt(0).rating, 5);
     QCOMPARE(model.itemAt(0).duration, QStringLiteral("01:01"));
+}
+
+void M19RepositoryPresentationMapperTest::metadataRefreshUpdatesModelBeforeAsyncReload()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QVERIFY(writeFile(tempDir.filePath(QStringLiteral("clip.mp4"))));
+
+    TestDatabase testDatabase = createDatabase(tempDir.filePath(QStringLiteral("metadata.sqlite3")));
+    QString error;
+    QVERIFY2(initializeMigratedDatabase(&testDatabase, &error), qPrintable(error));
+    const int mediaId = insertMediaFile(testDatabase.database, tempDir.filePath(QStringLiteral("clip.mp4")), &error);
+    QVERIFY2(mediaId > 0, qPrintable(error));
+
+    MediaRepository repository(testDatabase.database);
+    MediaLibraryModel model;
+    model.setItems(repository.fetchLibraryItems());
+    QCOMPARE(model.itemAt(0).durationMs, 0);
+    QCOMPARE(model.itemAt(0).resolution, QStringLiteral("-"));
+
+    MediaMetadata metadata;
+    metadata.durationMs = 90500;
+    metadata.bitrate = 2400000;
+    metadata.frameRate = 29.97003;
+    metadata.width = 1920;
+    metadata.height = 1080;
+    metadata.videoCodec = QStringLiteral("h264");
+    metadata.audioCodec = QStringLiteral("aac");
+    QVERIFY2(repository.updateMediaMetadata(mediaId, metadata), qPrintable(repository.lastError()));
+
+    MediaActionsController actions(&repository, &model);
+    const MediaActionResult refresh = actions.refreshMediaFromRepository(mediaId);
+    QVERIFY(refresh.selectedMediaChanged);
+    QCOMPARE(model.itemAt(0).durationMs, 90500);
+    QCOMPARE(model.itemAt(0).duration, QStringLiteral("01:30"));
+    QCOMPARE(model.itemAt(0).resolution, QStringLiteral("1920 x 1080"));
+    QCOMPARE(model.itemAt(0).codec, QStringLiteral("h264 / aac"));
+
+    closeDatabase(&testDatabase);
 }
 
 QTEST_MAIN(M19RepositoryPresentationMapperTest)

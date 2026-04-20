@@ -3,6 +3,7 @@
 #include "domain/MediaEntities.h"
 
 #include <QFutureWatcher>
+#include <QMetaType>
 #include <QObject>
 #include <QString>
 
@@ -16,6 +17,8 @@ struct MetadataControllerResult
     int mediaId = -1;
     bool manual = false;
 };
+
+Q_DECLARE_METATYPE(MetadataControllerResult)
 
 class MetadataController : public QObject
 {
