@@ -51,6 +51,7 @@ QHash<int, QByteArray> MediaLibraryModel::roleNames() const
         {IsDeleteCandidateRole, "isDeleteCandidate"},
         {LastPositionMsRole, "lastPositionMs"},
         {LastPlayedAtRole, "lastPlayedAt"},
+        {IsSelectedRole, "isSelected"},
     };
 }
 
@@ -81,6 +82,11 @@ int MediaLibraryModel::indexOfId(int mediaId) const
     return m_rowById.value(mediaId, -1);
 }
 
+bool MediaLibraryModel::isSelected(int row) const
+{
+    return row >= 0 && row < rowCount() && m_selectedIds.contains(m_items.at(row).id);
+}
+
 MediaLibraryItem MediaLibraryModel::itemAt(int row) const
 {
     if (row < 0 || row >= rowCount()) {
@@ -96,6 +102,26 @@ void MediaLibraryModel::setItems(QVector<MediaLibraryItem> items)
     m_items = std::move(items);
     rebuildIndex();
     endResetModel();
+}
+
+void MediaLibraryModel::setSelectedMediaIds(const QVector<int> &mediaIds)
+{
+    QSet<int> nextIds;
+    nextIds.reserve(mediaIds.size());
+    for (const int mediaId : mediaIds) {
+        if (mediaId > 0) {
+            nextIds.insert(mediaId);
+        }
+    }
+
+    if (m_selectedIds == nextIds) {
+        return;
+    }
+
+    m_selectedIds = std::move(nextIds);
+    if (rowCount() > 0) {
+        emit dataChanged(index(0), index(rowCount() - 1), {IsSelectedRole});
+    }
 }
 
 bool MediaLibraryModel::replaceItem(int mediaId, const MediaLibraryItem &item)
@@ -135,6 +161,7 @@ bool MediaLibraryModel::replaceItem(int mediaId, const MediaLibraryItem &item)
         IsDeleteCandidateRole,
         LastPositionMsRole,
         LastPlayedAtRole,
+        IsSelectedRole,
     });
     return true;
 }
@@ -252,6 +279,8 @@ QVariant MediaLibraryModel::valueForRole(const MediaLibraryItem &item, int role)
         return item.lastPositionMs;
     case LastPlayedAtRole:
         return item.lastPlayedAt;
+    case IsSelectedRole:
+        return m_selectedIds.contains(item.id);
     default:
         return {};
     }
@@ -283,5 +312,6 @@ QVariantMap MediaLibraryModel::toMap(const MediaLibraryItem &item) const
         {"isDeleteCandidate", item.isDeleteCandidate},
         {"lastPositionMs", item.lastPositionMs},
         {"lastPlayedAt", item.lastPlayedAt},
+        {"isSelected", m_selectedIds.contains(item.id)},
     };
 }

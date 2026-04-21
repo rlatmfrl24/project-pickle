@@ -87,6 +87,10 @@ target_include_directories(pickle_ports
 )
 
 qt_add_library(pickle_application STATIC
+    src/application/BatchUpdateMediaUseCase.cpp
+    src/application/BatchUpdateMediaUseCase.h
+    src/application/BatchRenameMediaUseCase.cpp
+    src/application/BatchRenameMediaUseCase.h
     src/application/CaptureSnapshotUseCase.cpp
     src/application/CaptureSnapshotUseCase.h
     src/application/ExtractMetadataUseCase.cpp
@@ -179,8 +183,10 @@ target_include_directories(pickle_media
 )
 
 qt_add_library(pickle_app STATIC
+    src/app/AppControllerBatchRename.cpp
     src/app/AppController.cpp
     src/app/AppController.h
+    src/app/AppControllerSelection.cpp
     src/app/DiagnosticsController.cpp
     src/app/DiagnosticsController.h
     src/app/LibraryController.cpp
@@ -434,6 +440,32 @@ pickle_add_test(m21_app_controller_facade_closure_test
 )
 
 target_compile_definitions(m21_app_controller_facade_closure_test
+    PRIVATE PICKLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+
+pickle_add_test(m22_smart_views_filter_test
+    tests/M22SmartViewsFilterTest.cpp
+    pickle_app
+    pickle_test_support
+)
+
+pickle_add_test(m23_multi_selection_batch_test
+    tests/M23MultiSelectionBatchTest.cpp
+    pickle_app
+    pickle_test_support
+)
+
+target_compile_definitions(m23_multi_selection_batch_test
+    PRIVATE PICKLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+
+pickle_add_test(m24_batch_rename_test
+    tests/M24BatchRenameTest.cpp
+    pickle_app
+    pickle_test_support
+)
+
+target_compile_definitions(m24_batch_rename_test
     PRIVATE PICKLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 

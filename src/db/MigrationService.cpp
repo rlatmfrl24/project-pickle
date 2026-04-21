@@ -12,6 +12,7 @@ constexpr auto InitialSchemaVersion = "001_initial_schema";
 constexpr auto M07FileManagementVersion = "002_m07_file_management";
 constexpr auto PerformanceIndexesVersion = "003_performance_indexes";
 constexpr auto PerformanceHardeningVersion = "004_performance_hardening";
+constexpr auto SmartViewFilterIndexesVersion = "005_m22_smart_view_filter_indexes";
 
 struct MigrationDefinition {
     QString version;
@@ -137,6 +138,15 @@ QVector<MigrationDefinition> migrations()
                 QStringLiteral("CREATE INDEX IF NOT EXISTS idx_snapshots_media_id_id_desc ON snapshots(media_id, id DESC)"),
                 QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_tags_tag_media ON media_tags(tag_id, media_id)"),
                 QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_tags_media_tag ON media_tags(media_id, tag_id)"),
+            },
+        },
+        {
+            QString::fromLatin1(SmartViewFilterIndexesVersion),
+            {
+                QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_files_review_status_name ON media_files(review_status, file_name COLLATE NOCASE, file_path)"),
+                QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_files_favorite_name ON media_files(is_favorite, file_name COLLATE NOCASE, file_path)"),
+                QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_files_delete_candidate_name ON media_files(is_delete_candidate, file_name COLLATE NOCASE, file_path)"),
+                QStringLiteral("CREATE INDEX IF NOT EXISTS idx_media_files_last_played_name ON media_files(last_played_at DESC, file_name COLLATE NOCASE, file_path) WHERE last_played_at IS NOT NULL AND last_played_at <> ''"),
             },
         },
     };

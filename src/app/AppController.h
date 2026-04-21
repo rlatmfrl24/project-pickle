@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
@@ -16,6 +17,7 @@ struct DiagnosticsContext;
 class ISettingsRepository;
 class IMediaRepository;
 class LibraryController;
+struct MediaActionResult;
 class MediaActionsController;
 class MetadataController;
 struct MetadataControllerResult;
@@ -33,6 +35,8 @@ class AppController : public QObject
     Q_OBJECT
     Q_PROPERTY(int selectedIndex READ selectedIndex WRITE setSelectedIndex NOTIFY selectedIndexChanged)
     Q_PROPERTY(QVariantMap selectedMedia READ selectedMedia NOTIFY selectedMediaChanged)
+    Q_PROPERTY(QVariantList selectedMediaIds READ selectedMediaIds NOTIFY selectionStateChanged)
+    Q_PROPERTY(int selectedMediaCount READ selectedMediaCount NOTIFY selectionStateChanged)
     Q_PROPERTY(bool databaseReady READ databaseReady NOTIFY databaseStateChanged)
     Q_PROPERTY(QString databaseStatus READ databaseStatus NOTIFY databaseStateChanged)
     Q_PROPERTY(QString databasePath READ databasePath NOTIFY databaseStateChanged)
@@ -44,6 +48,9 @@ class AppController : public QObject
     Q_PROPERTY(QString scanProgressText READ scanProgressText NOTIFY scanStateChanged)
     Q_PROPERTY(bool scanCancelAvailable READ scanCancelAvailable NOTIFY scanStateChanged)
     Q_PROPERTY(QString librarySearchText READ librarySearchText WRITE setLibrarySearchText NOTIFY libraryStateChanged)
+    Q_PROPERTY(QString libraryViewMode READ libraryViewMode WRITE setLibraryViewMode NOTIFY libraryStateChanged)
+    Q_PROPERTY(QString libraryTagFilter READ libraryTagFilter WRITE setLibraryTagFilter NOTIFY libraryStateChanged)
+    Q_PROPERTY(QStringList availableTags READ availableTags NOTIFY libraryStateChanged)
     Q_PROPERTY(QString librarySortKey READ librarySortKey WRITE setLibrarySortKey NOTIFY libraryStateChanged)
     Q_PROPERTY(bool librarySortAscending READ librarySortAscending WRITE setLibrarySortAscending NOTIFY libraryStateChanged)
     Q_PROPERTY(bool showThumbnails READ showThumbnails WRITE setShowThumbnails NOTIFY libraryStateChanged)
@@ -78,6 +85,8 @@ public:
     void setSelectedIndex(int selectedIndex);
 
     QVariantMap selectedMedia() const;
+    QVariantList selectedMediaIds() const;
+    int selectedMediaCount() const;
 
     bool databaseReady() const;
     QString databaseStatus() const;
@@ -94,6 +103,11 @@ public:
 
     QString librarySearchText() const;
     void setLibrarySearchText(const QString &searchText);
+    QString libraryViewMode() const;
+    void setLibraryViewMode(const QString &viewMode);
+    QString libraryTagFilter() const;
+    void setLibraryTagFilter(const QString &tagFilter);
+    QStringList availableTags() const;
     QString librarySortKey() const;
     void setLibrarySortKey(const QString &sortKey);
     bool librarySortAscending() const;
@@ -122,6 +136,9 @@ public:
     QVariantList workEvents() const;
 
     Q_INVOKABLE void selectIndex(int index);
+    Q_INVOKABLE void selectRangeOrToggle(int index, bool toggle, bool range);
+    Q_INVOKABLE void selectAllVisible();
+    Q_INVOKABLE void clearSelection();
     Q_INVOKABLE void startDirectoryScan(const QUrl &folderUrl);
     Q_INVOKABLE void rescanCurrentRoot();
     Q_INVOKABLE void cancelScan();
@@ -136,6 +153,12 @@ public:
     Q_INVOKABLE void setSelectedFavorite(bool enabled);
     Q_INVOKABLE void setSelectedDeleteCandidate(bool enabled);
     Q_INVOKABLE void saveSelectedPlaybackPosition(qint64 positionMs);
+    Q_INVOKABLE void addTagsToSelectedMedia(const QVariantList &tags);
+    Q_INVOKABLE void removeTagsFromSelectedMedia(const QVariantList &tags);
+    Q_INVOKABLE void setSelectedMediaReviewStatus(const QString &reviewStatus);
+    Q_INVOKABLE void setSelectedMediaRating(int rating);
+    Q_INVOKABLE QVariantMap previewSelectedMediaBatchRename(const QVariantMap &rule) const;
+    Q_INVOKABLE QVariantMap renameSelectedMediaBatch(const QVariantMap &rule);
     Q_INVOKABLE void captureSelectedSnapshot(qint64 timestampMs);
     Q_INVOKABLE void cancelSnapshotCapture();
     Q_INVOKABLE void cancelActiveWork();
@@ -157,6 +180,7 @@ public:
 signals:
     void selectedIndexChanged();
     void selectedMediaChanged();
+    void selectionStateChanged();
     void databaseStateChanged();
     void scanStateChanged();
     void libraryStateChanged();
@@ -179,7 +203,13 @@ private:
     void runAutoMetadataExtraction();
     void startMetadataExtraction(const QVariantMap &media, bool manual);
     void refreshSelectedSnapshots();
+    void refreshAvailableTags();
     bool hasActiveBackgroundWork() const;
+    void applySelection(const QVector<int> &mediaIds, int primaryMediaId, int anchorMediaId);
+    QVector<int> visibleMediaIds(const QVector<int> &mediaIds) const;
+    QVector<int> selectedMediaIdVector() const;
+    QVector<MediaLibraryItem> selectedMediaItemsInVisibleOrder() const;
+    void handleBatchActionResult(const MediaActionResult &result);
     void requestLibraryReload(int delayMs);
     bool applyLibraryItems(QVector<MediaLibraryItem> items);
     void syncSelectionAfterLibraryChange();
@@ -213,6 +243,8 @@ private:
     std::unique_ptr<ThumbnailController> m_thumbnailController;
     int m_selectedIndex = 0;
     int m_selectedMediaId = -1;
+    QVector<int> m_selectedMediaIds;
+    int m_selectionAnchorMediaId = -1;
     bool m_databaseReady = false;
     bool m_shuttingDown = false;
     QString m_databaseStatus = QStringLiteral("DB not initialized");
@@ -224,6 +256,9 @@ private:
     int m_scanFoundCount = 0;
     QString m_scanProgressText;
     QString m_librarySearchText;
+    QString m_libraryViewMode = QStringLiteral("all");
+    QString m_libraryTagFilter;
+    QStringList m_availableTags;
     QString m_librarySortKey = QStringLiteral("name");
     bool m_librarySortAscending = true;
     bool m_showThumbnails = true;

@@ -10,15 +10,24 @@ Rectangle {
     property var model
     property int currentIndex: -1
     property string searchText: ""
+    property string viewMode: "all"
+    property string tagFilter: ""
+    property var availableTags: []
     property string sortKey: "name"
     property bool sortAscending: true
     property bool showThumbnails: true
     property string libraryStatus: ""
+    property int selectedCount: 0
 
     signal selected(int index)
+    signal selectionRequested(int index, bool toggle, bool range)
     signal activated(int index)
     signal renameRequested(int index)
+    signal selectAllRequested()
+    signal clearSelectionRequested()
     signal searchRequested(string searchText)
+    signal viewModeRequested(string viewMode)
+    signal tagFilterRequested(string tagFilter)
     signal sortKeyRequested(string sortKey)
     signal sortAscendingRequested(bool ascending)
     signal thumbnailVisibilityRequested(bool showThumbnails)
@@ -33,6 +42,40 @@ Rectangle {
         }
 
         return "file:///" + path.replace(/\\/g, "/")
+    }
+
+    readonly property var viewKeys: ["all", "unreviewed", "favorites", "deleteCandidates", "recent"]
+    readonly property var viewLabels: [qsTr("All"), qsTr("Unreviewed"), qsTr("Favorites"), qsTr("Delete"), qsTr("Recent")]
+
+    function viewIndex(viewMode) {
+        for (let i = 0; i < root.viewKeys.length; ++i) {
+            if (root.viewKeys[i] === viewMode) {
+                return i
+            }
+        }
+        return 0
+    }
+
+    function tagOptions() {
+        const options = [qsTr("All tags")]
+        const tags = root.availableTags || []
+        for (let i = 0; i < tags.length; ++i) {
+            options.push(String(tags[i]))
+        }
+        return options
+    }
+
+    function tagIndex(tagFilter) {
+        if (!tagFilter || tagFilter.length === 0) {
+            return 0
+        }
+        const tags = root.availableTags || []
+        for (let i = 0; i < tags.length; ++i) {
+            if (String(tags[i]).toLocaleLowerCase() === tagFilter.toLocaleLowerCase()) {
+                return i + 1
+            }
+        }
+        return 0
     }
 
     radius: 8
@@ -50,6 +93,12 @@ Rectangle {
     Keys.onPressed: function(event) {
         if (event.key === Qt.Key_F2) {
             root.requestRenameCurrent()
+            event.accepted = true
+        } else if (event.key === Qt.Key_A && event.modifiers & Qt.ControlModifier) {
+            root.selectAllRequested()
+            event.accepted = true
+        } else if (event.key === Qt.Key_Escape && root.selectedCount > 1) {
+            root.clearSelectionRequested()
             event.accepted = true
         }
     }
@@ -90,11 +139,11 @@ Rectangle {
             }
 
             ComboBox {
-                currentIndex: root.sortKey === "size" ? 1 : (root.sortKey === "modified" ? 2 : 0)
-                model: [qsTr("Name"), qsTr("Size"), qsTr("Modified")]
-                Layout.preferredWidth: 112
+                currentIndex: root.sortKey === "size" ? 1 : (root.sortKey === "modified" ? 2 : (root.sortKey === "lastPlayed" ? 3 : 0))
+                model: [qsTr("Name"), qsTr("Size"), qsTr("Modified"), qsTr("Last played")]
+                Layout.preferredWidth: 128
                 onActivated: function(index) {
-                    const keys = ["name", "size", "modified"]
+                    const keys = ["name", "size", "modified", "lastPlayed"]
                     root.sortKeyRequested(keys[index])
                 }
             }
@@ -106,9 +155,41 @@ Rectangle {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            ComboBox {
+                currentIndex: root.viewIndex(root.viewMode)
+                model: root.viewLabels
+                Layout.fillWidth: true
+                onActivated: function(index) {
+                    root.viewModeRequested(root.viewKeys[index])
+                }
+            }
+
+            ComboBox {
+                currentIndex: root.tagIndex(root.tagFilter)
+                model: root.tagOptions()
+                Layout.fillWidth: true
+                onActivated: function(index) {
+                    root.tagFilterRequested(index <= 0 ? "" : String(root.availableTags[index - 1]))
+                }
+            }
+
+            Button {
+                text: qsTr("Clear")
+                enabled: root.tagFilter.length > 0
+                Layout.preferredWidth: 58
+                onClicked: root.tagFilterRequested("")
+            }
+        }
+
         Label {
             Layout.fillWidth: true
-            text: root.libraryStatus
+            text: root.selectedCount > 1
+                ? root.libraryStatus + qsTr("  /  ") + qsTr("%1 selected").arg(root.selectedCount)
+                : root.libraryStatus
             color: "#7f8898"
             font.pixelSize: 11
             elide: Text.ElideRight
@@ -131,6 +212,12 @@ Rectangle {
                 if (event.key === Qt.Key_F2) {
                     root.requestRenameCurrent()
                     event.accepted = true
+                } else if (event.key === Qt.Key_A && event.modifiers & Qt.ControlModifier) {
+                    root.selectAllRequested()
+                    event.accepted = true
+                } else if (event.key === Qt.Key_Escape && root.selectedCount > 1) {
+                    root.clearSelectionRequested()
+                    event.accepted = true
                 }
             }
 
@@ -146,16 +233,17 @@ Rectangle {
                 required property string thumbnailPath
                 required property bool isFavorite
                 required property bool isDeleteCandidate
+                required property bool isSelected
 
-                readonly property bool selected: root.currentIndex === row.index
+                readonly property bool primarySelected: root.currentIndex === row.index
 
                 width: ListView.view.width
                 height: 72
                 radius: 6
-                color: selected
+                color: primarySelected
                     ? "#243348"
-                    : (row.isDeleteCandidate ? "#251b22" : (mouseArea.containsMouse ? "#1d2431" : "#141922"))
-                border.color: selected ? "#5ab0ff" : (row.isFavorite ? "#e0b04c" : "transparent")
+                    : (row.isSelected ? "#1f2a3a" : (row.isDeleteCandidate ? "#251b22" : (mouseArea.containsMouse ? "#1d2431" : "#141922")))
+                border.color: primarySelected ? "#5ab0ff" : (row.isSelected ? "#7fa7d8" : (row.isFavorite ? "#e0b04c" : "transparent"))
                 border.width: 1
 
                 RowLayout {
@@ -168,7 +256,7 @@ Rectangle {
                         Layout.preferredWidth: root.showThumbnails ? 46 : 0
                         Layout.preferredHeight: 46
                         radius: 5
-                        color: row.selected ? "#36506f" : "#252c38"
+                        color: row.primarySelected ? "#36506f" : (row.isSelected ? "#31435b" : "#252c38")
                         clip: true
 
                         Image {
@@ -218,7 +306,7 @@ Rectangle {
                         text: (row.isFavorite ? qsTr("Fav ") : "")
                             + (row.isDeleteCandidate ? qsTr("Delete ") : "")
                             + row.reviewStatus
-                        color: row.isDeleteCandidate ? "#ffb4a8" : (row.selected ? "#d6e7ff" : "#9fb0c5")
+                        color: row.isDeleteCandidate ? "#ffb4a8" : (row.primarySelected || row.isSelected ? "#d6e7ff" : "#9fb0c5")
                         font.pixelSize: 12
                     }
                 }
@@ -229,9 +317,9 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     acceptedButtons: Qt.LeftButton
-                    onClicked: {
+                    onClicked: function(mouse) {
                         listView.forceActiveFocus()
-                        root.selected(row.index)
+                        root.selectionRequested(row.index, Boolean(mouse.modifiers & Qt.ControlModifier), Boolean(mouse.modifiers & Qt.ShiftModifier))
                     }
                     onDoubleClicked: {
                         listView.forceActiveFocus()

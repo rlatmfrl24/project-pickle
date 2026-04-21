@@ -1,5 +1,6 @@
 #include "app/MediaActionsController.h"
 
+#include "application/BatchUpdateMediaUseCase.h"
 #include "application/RenameMediaUseCase.h"
 #include "application/SavePlaybackPositionUseCase.h"
 #include "application/UpdateMediaDetailsUseCase.h"
@@ -247,6 +248,114 @@ MediaActionResult MediaActionsController::savePlaybackPosition(
     }
     m_model->setPlaybackPosition(mediaId, normalizedPositionMs, playedAt);
     action.selectedMediaChanged = true;
+    return action;
+}
+
+MediaActionResult MediaActionsController::addTagsToMedia(
+    const QVector<int> &mediaIds,
+    const QVariantList &tags,
+    bool databaseReady,
+    bool hasActiveWork)
+{
+    MediaActionResult action;
+    if (!databaseReady || !m_repository) {
+        action.status = QStringLiteral("Database is not ready for batch tag updates.");
+        return action;
+    }
+    if (hasActiveWork) {
+        action.status = QStringLiteral("Wait for active work to finish before updating tags.");
+        return action;
+    }
+    BatchUpdateMediaUseCase useCase(m_repository);
+    const VoidResult result = useCase.addTags(mediaIds, stringListFromVariantList(tags));
+    if (!result.succeeded) {
+        action.status = QStringLiteral("Batch tag add failed: %1").arg(result.errorMessage);
+        return action;
+    }
+    action.selectedMediaChanged = true;
+    action.libraryReloadRequested = true;
+    action.status = QStringLiteral("Tags added to %1 item(s)").arg(mediaIds.size());
+    return action;
+}
+
+MediaActionResult MediaActionsController::removeTagsFromMedia(
+    const QVector<int> &mediaIds,
+    const QVariantList &tags,
+    bool databaseReady,
+    bool hasActiveWork)
+{
+    MediaActionResult action;
+    if (!databaseReady || !m_repository) {
+        action.status = QStringLiteral("Database is not ready for batch tag updates.");
+        return action;
+    }
+    if (hasActiveWork) {
+        action.status = QStringLiteral("Wait for active work to finish before updating tags.");
+        return action;
+    }
+    BatchUpdateMediaUseCase useCase(m_repository);
+    const VoidResult result = useCase.removeTags(mediaIds, stringListFromVariantList(tags));
+    if (!result.succeeded) {
+        action.status = QStringLiteral("Batch tag remove failed: %1").arg(result.errorMessage);
+        return action;
+    }
+    action.selectedMediaChanged = true;
+    action.libraryReloadRequested = true;
+    action.status = QStringLiteral("Tags removed from %1 item(s)").arg(mediaIds.size());
+    return action;
+}
+
+MediaActionResult MediaActionsController::setReviewStatusForMedia(
+    const QVector<int> &mediaIds,
+    const QString &reviewStatus,
+    bool databaseReady,
+    bool hasActiveWork)
+{
+    MediaActionResult action;
+    if (!databaseReady || !m_repository) {
+        action.status = QStringLiteral("Database is not ready for batch status updates.");
+        return action;
+    }
+    if (hasActiveWork) {
+        action.status = QStringLiteral("Wait for active work to finish before updating status.");
+        return action;
+    }
+    BatchUpdateMediaUseCase useCase(m_repository);
+    const VoidResult result = useCase.setReviewStatus(mediaIds, reviewStatus);
+    if (!result.succeeded) {
+        action.status = QStringLiteral("Batch status update failed: %1").arg(result.errorMessage);
+        return action;
+    }
+    action.selectedMediaChanged = true;
+    action.libraryReloadRequested = true;
+    action.status = QStringLiteral("Status updated for %1 item(s)").arg(mediaIds.size());
+    return action;
+}
+
+MediaActionResult MediaActionsController::setRatingForMedia(
+    const QVector<int> &mediaIds,
+    int rating,
+    bool databaseReady,
+    bool hasActiveWork)
+{
+    MediaActionResult action;
+    if (!databaseReady || !m_repository) {
+        action.status = QStringLiteral("Database is not ready for batch rating updates.");
+        return action;
+    }
+    if (hasActiveWork) {
+        action.status = QStringLiteral("Wait for active work to finish before updating rating.");
+        return action;
+    }
+    BatchUpdateMediaUseCase useCase(m_repository);
+    const VoidResult result = useCase.setRating(mediaIds, rating);
+    if (!result.succeeded) {
+        action.status = QStringLiteral("Batch rating update failed: %1").arg(result.errorMessage);
+        return action;
+    }
+    action.selectedMediaChanged = true;
+    action.libraryReloadRequested = true;
+    action.status = QStringLiteral("Rating updated for %1 item(s)").arg(mediaIds.size());
     return action;
 }
 

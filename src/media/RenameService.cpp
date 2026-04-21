@@ -33,9 +33,11 @@ bool containsInvalidFileNameCharacter(const QString &baseName)
 
     return false;
 }
-}
 
-FileRenameResult RenameService::renameFile(const QString &filePath, const QString &newBaseName) const
+FileRenameResult buildRenameResult(
+    const QString &filePath,
+    const QString &newBaseName,
+    bool execute)
 {
     FileRenameResult result;
 
@@ -78,7 +80,7 @@ FileRenameResult RenameService::renameFile(const QString &filePath, const QStrin
         return result;
     }
 
-    if (sourcePath != normalizedTargetPath) {
+    if (execute && sourcePath != normalizedTargetPath) {
         QFile sourceFile(sourceInfo.absoluteFilePath());
         if (!sourceFile.rename(targetInfo.absoluteFilePath())) {
             result.errorMessage = sourceFile.errorString();
@@ -89,12 +91,23 @@ FileRenameResult RenameService::renameFile(const QString &filePath, const QStrin
         }
     }
 
-    const QFileInfo renamedInfo(targetInfo.absoluteFilePath());
-    result.file.fileName = renamedInfo.fileName();
-    result.file.filePath = normalizedPath(renamedInfo);
-    result.file.fileExtension = normalizedExtension(renamedInfo);
-    result.file.fileSize = renamedInfo.size();
-    result.file.modifiedAt = renamedInfo.lastModified().toUTC().toString(Qt::ISODateWithMs);
+    const QFileInfo resultInfo = execute ? QFileInfo(targetInfo.absoluteFilePath()) : sourceInfo;
+    result.file.fileName = targetFileName;
+    result.file.filePath = execute ? normalizedPath(resultInfo) : normalizedTargetPath;
+    result.file.fileExtension = normalizedExtension(resultInfo);
+    result.file.fileSize = resultInfo.size();
+    result.file.modifiedAt = resultInfo.lastModified().toUTC().toString(Qt::ISODateWithMs);
     result.succeeded = true;
     return result;
+}
+}
+
+FileRenameResult RenameService::planRename(const QString &filePath, const QString &newBaseName) const
+{
+    return buildRenameResult(filePath, newBaseName, false);
+}
+
+FileRenameResult RenameService::renameFile(const QString &filePath, const QString &newBaseName) const
+{
+    return buildRenameResult(filePath, newBaseName, true);
 }

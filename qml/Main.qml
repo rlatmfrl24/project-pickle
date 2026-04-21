@@ -13,6 +13,8 @@ ApplicationWindow {
     required property var appController
     required property var playbackController
     property string pendingRenameBaseName: ""
+    property var pendingBatchRenameRule: ({})
+    property var batchRenamePreview: ({ "items": [], "status": "", "runnableCount": 0 })
     property string diagnosticText: ""
 
     minimumWidth: 960
@@ -37,6 +39,42 @@ ApplicationWindow {
         window.appController.selectIndex(index)
         renameNameField.text = window.baseNameForMedia(window.appController.selectedMedia)
         renameDialog.open()
+    }
+
+    function currentBatchRenameRule() {
+        return {
+            "prefix": batchRenamePrefixField.text,
+            "suffix": batchRenameSuffixField.text,
+            "numberingEnabled": batchRenameNumberingCheck.checked,
+            "numberStart": batchRenameStartSpin.value,
+            "numberPadding": batchRenamePaddingSpin.value
+        }
+    }
+
+    function refreshBatchRenamePreview() {
+        if (!batchRenameDialog.visible) {
+            return
+        }
+        window.batchRenamePreview = window.appController.previewSelectedMediaBatchRename(window.currentBatchRenameRule())
+    }
+
+    function openBatchRenameDialog() {
+        if (window.appController.selectedMediaCount < 2) {
+            return
+        }
+        batchRenamePrefixField.text = ""
+        batchRenameSuffixField.text = ""
+        batchRenameNumberingCheck.checked = false
+        batchRenameStartSpin.value = 1
+        batchRenamePaddingSpin.value = 2
+        batchRenameDialog.open()
+        window.refreshBatchRenamePreview()
+    }
+
+    function batchRenameCanExecute() {
+        return window.batchRenamePreview
+            && window.batchRenamePreview.runnableCount > 0
+            && !window.hasActiveWork()
     }
 
     function hasActiveWork() {
@@ -85,7 +123,8 @@ ApplicationWindow {
         ffmpegPathField.text = window.appController.ffmpegPath
         settingsShowThumbnails.checked = window.appController.showThumbnails
         settingsSortCombo.currentIndex = window.appController.librarySortKey === "size" ? 1
-            : (window.appController.librarySortKey === "modified" ? 2 : 0)
+            : (window.appController.librarySortKey === "modified" ? 2
+                : (window.appController.librarySortKey === "lastPlayed" ? 3 : 0))
         settingsSortAscending.checked = window.appController.librarySortAscending
         settingsVolumeSlider.value = Math.round(window.appController.playerVolume * 100)
         settingsMutedCheck.checked = window.appController.playerMuted
@@ -97,7 +136,9 @@ ApplicationWindow {
             "ffprobePath": ffprobePathField.text,
             "ffmpegPath": ffmpegPathField.text,
             "showThumbnails": settingsShowThumbnails.checked,
-            "sortKey": settingsSortCombo.currentIndex === 1 ? "size" : (settingsSortCombo.currentIndex === 2 ? "modified" : "name"),
+            "sortKey": settingsSortCombo.currentIndex === 1 ? "size"
+                : (settingsSortCombo.currentIndex === 2 ? "modified"
+                    : (settingsSortCombo.currentIndex === 3 ? "lastPlayed" : "name")),
             "sortAscending": settingsSortAscending.checked,
             "playerVolume": settingsVolumeSlider.value / 100,
             "playerMuted": settingsMutedCheck.checked
@@ -193,10 +234,16 @@ ApplicationWindow {
             }
 
             MenuItem {
-                text: qsTr("Rename Selected...")
+                text: window.appController.selectedMediaCount > 1 ? qsTr("Batch Rename Selected...") : qsTr("Rename Selected...")
                 enabled: window.appController.selectedIndex >= 0
                     && !window.hasActiveWork()
-                onTriggered: window.openRenameDialog(window.appController.selectedIndex)
+                onTriggered: {
+                    if (window.appController.selectedMediaCount > 1) {
+                        window.openBatchRenameDialog()
+                    } else {
+                        window.openRenameDialog(window.appController.selectedIndex)
+                    }
+                }
             }
 
             MenuSeparator {}
@@ -474,7 +521,7 @@ ApplicationWindow {
                     ComboBox {
                         id: settingsSortCombo
 
-                        model: [qsTr("Name"), qsTr("Size"), qsTr("Modified")]
+                        model: [qsTr("Name"), qsTr("Size"), qsTr("Modified"), qsTr("Last played")]
                         Layout.preferredWidth: 140
                     }
 
@@ -659,6 +706,207 @@ ApplicationWindow {
         }
     }
 
+    Dialog {
+        id: batchRenameDialog
+
+        title: qsTr("Batch Rename")
+        modal: true
+        standardButtons: Dialog.Cancel
+        width: Math.min(window.width - 40, 720)
+        height: Math.min(window.height - 80, 560)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        onOpened: batchRenamePrefixField.forceActiveFocus()
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                rowSpacing: 8
+                columnSpacing: 10
+
+                Label { text: qsTr("Prefix"); color: "#dfe7f4" }
+                TextField {
+                    id: batchRenamePrefixField
+
+                    Layout.fillWidth: true
+                    selectByMouse: true
+                    onTextChanged: window.refreshBatchRenamePreview()
+                }
+
+                Label { text: qsTr("Suffix"); color: "#dfe7f4" }
+                TextField {
+                    id: batchRenameSuffixField
+
+                    Layout.fillWidth: true
+                    selectByMouse: true
+                    onTextChanged: window.refreshBatchRenamePreview()
+                }
+
+                Label { text: qsTr("Numbering"); color: "#dfe7f4" }
+                CheckBox {
+                    id: batchRenameNumberingCheck
+
+                    text: qsTr("Append -NN")
+                    onToggled: window.refreshBatchRenamePreview()
+                }
+
+                Label { text: qsTr("Start"); color: "#dfe7f4" }
+                SpinBox {
+                    id: batchRenameStartSpin
+
+                    from: 1
+                    to: 9999
+                    value: 1
+                    enabled: batchRenameNumberingCheck.checked
+                    onValueModified: window.refreshBatchRenamePreview()
+                }
+
+                Label { text: qsTr("Padding"); color: "#dfe7f4" }
+                SpinBox {
+                    id: batchRenamePaddingSpin
+
+                    from: 1
+                    to: 9
+                    value: 2
+                    enabled: batchRenameNumberingCheck.checked
+                    onValueModified: window.refreshBatchRenamePreview()
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: window.batchRenamePreview.status || qsTr("")
+                color: window.batchRenamePreview.runnableCount > 0 ? "#7f8898" : "#ffb4a8"
+                font.pixelSize: 12
+                elide: Text.ElideRight
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: 6
+                color: "#101620"
+                border.color: "#283040"
+                border.width: 1
+                clip: true
+
+                RowLayout {
+                    id: batchRenamePreviewHeader
+
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 8
+                    spacing: 8
+
+                    Label {
+                        text: qsTr("Current name")
+                        color: "#7f8898"
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        text: qsTr("New name")
+                        color: "#7f8898"
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        text: qsTr("Status")
+                        color: "#7f8898"
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                        Layout.preferredWidth: 190
+                    }
+                }
+
+                ListView {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: batchRenamePreviewHeader.bottom
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 8
+                    clip: true
+                    spacing: 4
+                    model: window.batchRenamePreview.items || []
+
+                    delegate: RowLayout {
+                        required property var modelData
+
+                        width: ListView.view.width
+                        spacing: 8
+
+                        Label {
+                            text: modelData.currentName || qsTr("-")
+                            color: "#c7d0de"
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+
+                        Label {
+                            text: modelData.newName || qsTr("-")
+                            color: modelData.runnable || modelData.succeeded ? "#cfe2ff" : "#ffb4a8"
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+
+                        Label {
+                            text: modelData.status || qsTr("-")
+                            color: modelData.runnable || modelData.succeeded ? "#7f8898" : "#ffb4a8"
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                            Layout.preferredWidth: 190
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Button {
+                    text: qsTr("Refresh Preview")
+                    onClicked: window.refreshBatchRenamePreview()
+                    Layout.fillWidth: true
+                }
+
+                Button {
+                    text: qsTr("Rename")
+                    enabled: window.batchRenameCanExecute()
+                    onClicked: {
+                        window.pendingBatchRenameRule = window.currentBatchRenameRule()
+                        playerPage.releaseLoadedSource()
+                        batchRenameAfterReleaseTimer.restart()
+                    }
+                    Layout.fillWidth: true
+                }
+            }
+        }
+    }
+
+    Timer {
+        id: batchRenameAfterReleaseTimer
+
+        interval: 200
+        repeat: false
+        onTriggered: {
+            window.batchRenamePreview = window.appController.renameSelectedMediaBatch(window.pendingBatchRenameRule)
+            playerPage.releaseLoadedSource(false)
+            window.pendingBatchRenameRule = ({})
+        }
+    }
+
     header: ToolBar {
         background: Rectangle {
             color: "#151922"
@@ -786,14 +1034,24 @@ ApplicationWindow {
                     model: window.mediaLibraryModel
                     currentIndex: window.appController.selectedIndex
                     searchText: window.appController.librarySearchText
+                    viewMode: window.appController.libraryViewMode
+                    tagFilter: window.appController.libraryTagFilter
+                    availableTags: window.appController.availableTags
                     sortKey: window.appController.librarySortKey
                     sortAscending: window.appController.librarySortAscending
                     showThumbnails: window.appController.showThumbnails
                     libraryStatus: window.appController.libraryStatus
+                    selectedCount: window.appController.selectedMediaCount
                     onSelected: function(index) {
                         playerPage.persistPlaybackPosition()
                         window.appController.selectIndex(index)
                     }
+                    onSelectionRequested: function(index, toggle, range) {
+                        playerPage.persistPlaybackPosition()
+                        window.appController.selectRangeOrToggle(index, toggle, range)
+                    }
+                    onSelectAllRequested: window.appController.selectAllVisible()
+                    onClearSelectionRequested: window.appController.clearSelection()
                     onActivated: function(index) {
                         playerPage.persistPlaybackPosition()
                         window.appController.selectIndex(index)
@@ -806,6 +1064,14 @@ ApplicationWindow {
                     onSearchRequested: function(searchText) {
                         playerPage.persistPlaybackPosition()
                         window.appController.librarySearchText = searchText
+                    }
+                    onViewModeRequested: function(viewMode) {
+                        playerPage.persistPlaybackPosition()
+                        window.appController.libraryViewMode = viewMode
+                    }
+                    onTagFilterRequested: function(tagFilter) {
+                        playerPage.persistPlaybackPosition()
+                        window.appController.libraryTagFilter = tagFilter
                     }
                     onSortKeyRequested: function(sortKey) {
                         playerPage.persistPlaybackPosition()
@@ -826,9 +1092,15 @@ ApplicationWindow {
                     Layout.minimumHeight: 240
                     media: window.appController.selectedMedia
                     appController: window.appController
+                    selectedMediaCount: window.appController.selectedMediaCount
+                    availableTags: window.appController.availableTags
                     onRenameRequested: {
                         playerPage.persistPlaybackPosition()
                         window.openRenameDialog(window.appController.selectedIndex)
+                    }
+                    onBatchRenameRequested: {
+                        playerPage.persistPlaybackPosition()
+                        window.openBatchRenameDialog()
                     }
                 }
             }

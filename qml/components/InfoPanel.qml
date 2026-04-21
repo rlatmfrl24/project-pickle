@@ -9,15 +9,26 @@ Rectangle {
 
     property var media: ({})
     property var appController: null
+    property int selectedMediaCount: 0
+    property var availableTags: []
     property int draftMediaId: -1
     property var draftTags: []
     property bool syncingFlags: false
     readonly property bool hasSelection: root.media && root.media.id !== undefined && root.media.id > 0
+    readonly property bool batchMode: root.selectedMediaCount > 1
+    readonly property bool batchActionsEnabled: root.batchMode
+        && root.appController
+        && root.appController.databaseReady
+        && !root.appController.scanInProgress
+        && !root.appController.metadataInProgress
+        && !root.appController.snapshotInProgress
+        && !root.appController.thumbnailMaintenanceInProgress
     readonly property var selectedSnapshots: root.appController ? root.appController.selectedSnapshots : []
     readonly property var reviewStatusKeys: ["unreviewed", "reviewed", "needs_followup"]
     readonly property var reviewStatusLabels: [qsTr("Unreviewed"), qsTr("Reviewed"), qsTr("Needs follow-up")]
 
     signal renameRequested()
+    signal batchRenameRequested()
 
     function displayValue(key, fallbackText) {
         if (!root.media) {
@@ -102,6 +113,21 @@ Rectangle {
             root.draftTags)
     }
 
+    function batchRemoveTag() {
+        if (!root.appController || batchTagCombo.currentIndex < 0 || batchTagCombo.currentIndex >= root.availableTags.length) {
+            return
+        }
+        root.appController.removeTagsFromSelectedMedia([String(root.availableTags[batchTagCombo.currentIndex])])
+    }
+
+    function batchAddTag() {
+        if (!root.appController || batchTagInput.text.trim().length === 0) {
+            return
+        }
+        root.appController.addTagsToSelectedMedia([batchTagInput.text])
+        batchTagInput.text = ""
+    }
+
     function formatTime(milliseconds) {
         if (!milliseconds || milliseconds < 0) {
             return qsTr("00:00")
@@ -135,7 +161,7 @@ Rectangle {
             spacing: 8
 
             Label {
-                text: qsTr("Details")
+                text: root.batchMode ? qsTr("Batch edit") : qsTr("Details")
                 color: "#f3f6fb"
                 font.pixelSize: 17
                 font.weight: Font.DemiBold
@@ -152,6 +178,7 @@ Rectangle {
 
             Button {
                 text: qsTr("Rename")
+                visible: !root.batchMode
                 enabled: root.hasSelection
                     && root.appController
                     && !root.appController.scanInProgress
@@ -164,6 +191,7 @@ Rectangle {
 
             Button {
                 text: qsTr("Refresh")
+                visible: !root.batchMode
                 enabled: root.hasSelection
                     && root.appController
                     && root.appController.databaseReady
@@ -180,6 +208,7 @@ Rectangle {
 
         Label {
             Layout.fillWidth: true
+            visible: !root.batchMode
             text: root.displayValue("fileName", qsTr("No selection"))
             color: "#dfe7f4"
             font.pixelSize: 15
@@ -187,6 +216,157 @@ Rectangle {
             wrapMode: Text.Wrap
             maximumLineCount: 2
             elide: Text.ElideRight
+        }
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: root.batchMode
+            clip: true
+
+            ColumnLayout {
+                width: parent.width
+                spacing: 14
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("%1 items selected").arg(root.selectedMediaCount)
+                    color: "#dfe7f4"
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+
+                Button {
+                    text: qsTr("Rename...")
+                    enabled: root.batchActionsEnabled
+                    onClicked: root.batchRenameRequested()
+                    Layout.fillWidth: true
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: "#283040"
+                }
+
+                Label {
+                    text: qsTr("Tags")
+                    color: "#7f8898"
+                    font.pixelSize: 12
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    TextField {
+                        id: batchTagInput
+
+                        placeholderText: qsTr("New tag")
+                        enabled: root.batchActionsEnabled
+                        selectByMouse: true
+                        Layout.fillWidth: true
+                        onAccepted: root.batchAddTag()
+                    }
+
+                    Button {
+                        text: qsTr("Add tag")
+                        enabled: root.batchActionsEnabled && batchTagInput.text.trim().length > 0
+                        onClicked: root.batchAddTag()
+                        Layout.preferredWidth: 88
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    ComboBox {
+                        id: batchTagCombo
+
+                        model: root.availableTags
+                        enabled: root.batchActionsEnabled && root.availableTags.length > 0
+                        Layout.fillWidth: true
+                    }
+
+                    Button {
+                        text: qsTr("Remove")
+                        enabled: batchTagCombo.enabled
+                        onClicked: root.batchRemoveTag()
+                        Layout.preferredWidth: 88
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: "#283040"
+                }
+
+                Label {
+                    text: qsTr("Review")
+                    color: "#7f8898"
+                    font.pixelSize: 12
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    ComboBox {
+                        id: batchStatusCombo
+
+                        model: root.reviewStatusLabels
+                        enabled: root.batchActionsEnabled
+                        Layout.fillWidth: true
+                    }
+
+                    Button {
+                        text: qsTr("Apply")
+                        enabled: root.batchActionsEnabled
+                        onClicked: root.appController.setSelectedMediaReviewStatus(root.reviewStatusKeys[batchStatusCombo.currentIndex])
+                        Layout.preferredWidth: 88
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Label {
+                        text: qsTr("Rating")
+                        color: "#7f8898"
+                        font.pixelSize: 12
+                        Layout.preferredWidth: 48
+                    }
+
+                    SpinBox {
+                        id: batchRatingSpin
+
+                        from: 0
+                        to: 5
+                        editable: false
+                        enabled: root.batchActionsEnabled
+                        value: 0
+                        Layout.preferredWidth: 86
+                    }
+
+                    Button {
+                        text: qsTr("Apply")
+                        enabled: root.batchActionsEnabled
+                        onClicked: root.appController.setSelectedMediaRating(batchRatingSpin.value)
+                        Layout.fillWidth: true
+                    }
+                }
+
+                Button {
+                    text: qsTr("Clear Selection")
+                    enabled: root.appController !== null
+                    onClicked: root.appController.clearSelection()
+                    Layout.fillWidth: true
+                }
+            }
         }
 
         Label {
@@ -205,6 +385,7 @@ Rectangle {
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: !root.batchMode
             clip: true
 
             ColumnLayout {

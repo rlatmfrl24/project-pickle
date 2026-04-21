@@ -13,6 +13,8 @@ AppSettings normalized(AppSettings settings)
     const QString normalizedSortKey = settings.sortKey.trimmed().toLower();
     if (normalizedSortKey == QStringLiteral("size") || normalizedSortKey == QStringLiteral("modified")) {
         settings.sortKey = normalizedSortKey;
+    } else if (normalizedSortKey == QStringLiteral("lastplayed")) {
+        settings.sortKey = QStringLiteral("lastPlayed");
     } else {
         settings.sortKey = QStringLiteral("name");
     }

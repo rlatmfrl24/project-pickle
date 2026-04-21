@@ -10,6 +10,7 @@
 #include <QSet>
 #include <QVariant>
 
+#include <algorithm>
 #include <cmath>
 #include <utility>
 
@@ -32,6 +33,71 @@ bool isManagedThumbnailPath(const QString &thumbnailPath)
     return PathSecurity::isInsideOrEqual(thumbnailPath, defaultThumbnailRoot());
 }
 
+struct QueryWhere {
+    QString sql;
+    QStringList bindValues;
+};
+
+QueryWhere whereClauseForQuery(const MediaLibraryQuery &query)
+{
+    QueryWhere where;
+    QStringList clauses;
+
+    const QString searchText = query.searchText.trimmed();
+    if (!searchText.isEmpty()) {
+        clauses.append(QStringLiteral("(file_name LIKE ? ESCAPE '\\' COLLATE NOCASE OR description LIKE ? ESCAPE '\\' COLLATE NOCASE)"));
+        const QString pattern = escapedLikePattern(searchText);
+        where.bindValues.append(pattern);
+        where.bindValues.append(pattern);
+    }
+
+    switch (query.viewMode) {
+    case MediaLibraryViewMode::Unreviewed:
+        clauses.append(QStringLiteral("review_status = 'unreviewed'"));
+        break;
+    case MediaLibraryViewMode::Favorites:
+        clauses.append(QStringLiteral("is_favorite = 1"));
+        break;
+    case MediaLibraryViewMode::DeleteCandidates:
+        clauses.append(QStringLiteral("is_delete_candidate = 1"));
+        break;
+    case MediaLibraryViewMode::Recent:
+        clauses.append(QStringLiteral("last_played_at IS NOT NULL AND last_played_at <> ''"));
+        break;
+    case MediaLibraryViewMode::All:
+    default:
+        break;
+    }
+
+    const QString tagFilter = query.tagFilter.trimmed();
+    if (!tagFilter.isEmpty()) {
+        clauses.append(QStringLiteral(R"sql(
+            media_files.id IN (
+                SELECT media_tags.media_id
+                FROM tags
+                INNER JOIN media_tags ON media_tags.tag_id = tags.id
+                WHERE tags.name = ? COLLATE NOCASE
+            )
+        )sql"));
+        where.bindValues.append(tagFilter);
+    }
+
+    if (!clauses.isEmpty()) {
+        where.sql = QStringLiteral(" WHERE ") + clauses.join(QStringLiteral(" AND "));
+    }
+    return where;
+}
+
+void bindWhereValues(QSqlQuery *query, const QueryWhere &where)
+{
+    if (!query) {
+        return;
+    }
+    for (const QString &value : where.bindValues) {
+        query->addBindValue(value);
+    }
+}
+
 QString orderByClause(const MediaLibraryQuery &query)
 {
     const QString direction = query.ascending ? QStringLiteral("ASC") : QStringLiteral("DESC");
@@ -41,6 +107,8 @@ QString orderByClause(const MediaLibraryQuery &query)
         return QStringLiteral("file_size %1, file_name COLLATE NOCASE ASC, file_path ASC").arg(direction);
     case MediaLibrarySortKey::Modified:
         return QStringLiteral("modified_at %1, file_name COLLATE NOCASE ASC, file_path ASC").arg(direction);
+    case MediaLibrarySortKey::LastPlayed:
+        return QStringLiteral("last_played_at %1, file_name COLLATE NOCASE ASC, file_path ASC").arg(direction);
     case MediaLibrarySortKey::Name:
     default:
         return QStringLiteral("file_name COLLATE NOCASE %1, file_path ASC").arg(direction);
@@ -186,6 +254,31 @@ QStringList normalizedTags(const QStringList &tags)
     return result;
 }
 
+QVector<int> uniquePositiveIds(const QVector<int> &ids)
+{
+    QVector<int> result;
+    QSet<int> seen;
+    result.reserve(ids.size());
+    for (const int id : ids) {
+        if (id <= 0 || seen.contains(id)) {
+            continue;
+        }
+        seen.insert(id);
+        result.append(id);
+    }
+    return result;
+}
+
+QString placeholdersForCount(int count)
+{
+    QStringList placeholders;
+    placeholders.reserve(count);
+    for (int index = 0; index < count; ++index) {
+        placeholders.append(QStringLiteral("?"));
+    }
+    return placeholders.join(QLatin1Char(','));
+}
+
 MediaLibraryItem mediaLibraryItemFromQuery(const QSqlQuery &query)
 {
     MediaLibraryItem item;
@@ -320,7 +413,6 @@ QVector<MediaFile> MediaRepository::fetchMediaFiles(const MediaLibraryQuery &lib
         return files;
     }
 
-    const QString trimmedSearchText = libraryQuery.searchText.trimmed();
     QString sql = QStringLiteral(R"sql(
         SELECT
             id,
@@ -346,23 +438,13 @@ QVector<MediaFile> MediaRepository::fetchMediaFiles(const MediaLibraryQuery &lib
         FROM media_files
     )sql");
 
-    if (!trimmedSearchText.isEmpty()) {
-        sql += QStringLiteral(R"sql(
-        WHERE file_name LIKE ? ESCAPE '\' COLLATE NOCASE
-           OR description LIKE ? ESCAPE '\' COLLATE NOCASE
-    )sql");
-    }
-
+    const QueryWhere where = whereClauseForQuery(libraryQuery);
+    sql += where.sql;
     sql += QStringLiteral(" ORDER BY %1").arg(orderByClause(libraryQuery));
 
     QSqlQuery query(m_database);
     query.prepare(sql);
-
-    if (!trimmedSearchText.isEmpty()) {
-        const QString pattern = escapedLikePattern(trimmedSearchText);
-        query.addBindValue(pattern);
-        query.addBindValue(pattern);
-    }
+    bindWhereValues(&query, where);
 
     if (!query.exec()) {
         setLastError(query.lastError().text());
@@ -450,6 +532,27 @@ MediaFile MediaRepository::fetchMediaFileById(int mediaId)
     return file;
 }
 
+QStringList MediaRepository::fetchTagNames()
+{
+    QStringList tags;
+    if (!ensureOpen()) {
+        return tags;
+    }
+
+    QSqlQuery query(m_database);
+    if (!query.exec(QStringLiteral("SELECT name FROM tags ORDER BY name COLLATE NOCASE, name"))) {
+        setLastError(query.lastError().text());
+        return tags;
+    }
+
+    while (query.next()) {
+        tags.append(query.value(0).toString());
+    }
+
+    m_lastError.clear();
+    return tags;
+}
+
 QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems()
 {
     return fetchLibraryItems(MediaLibraryQuery {});
@@ -489,13 +592,8 @@ QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems(const MediaLibraryQ
         FROM media_files
     )sql");
 
-    const QString searchText = libraryQuery.searchText.trimmed();
-    if (!searchText.isEmpty()) {
-        sql += QStringLiteral(R"sql(
-            WHERE file_name LIKE ? ESCAPE '\' COLLATE NOCASE
-               OR description LIKE ? ESCAPE '\' COLLATE NOCASE
-        )sql");
-    }
+    const QueryWhere where = whereClauseForQuery(libraryQuery);
+    sql += where.sql;
     sql += QStringLiteral(" ORDER BY %1").arg(orderByClause(libraryQuery));
 
     if (!query.prepare(sql)) {
@@ -503,11 +601,7 @@ QVector<MediaLibraryItem> MediaRepository::fetchLibraryItems(const MediaLibraryQ
         return items;
     }
 
-    if (!searchText.isEmpty()) {
-        const QString pattern = escapedLikePattern(searchText);
-        query.addBindValue(pattern);
-        query.addBindValue(pattern);
-    }
+    bindWhereValues(&query, where);
 
     if (!query.exec()) {
         setLastError(query.lastError().text());
@@ -1091,6 +1185,196 @@ QVector<ThumbnailBackfillItem> MediaRepository::fetchThumbnailBackfillItems()
     return items;
 }
 
+bool MediaRepository::addTagsToMedia(const QVector<int> &mediaIds, const QStringList &tags)
+{
+    const QVector<int> normalizedIds = uniquePositiveIds(mediaIds);
+    const QStringList tagNames = normalizedTags(tags);
+    if (normalizedIds.isEmpty() || tagNames.isEmpty()) {
+        m_lastError.clear();
+        return true;
+    }
+    if (!ensureOpen()) {
+        return false;
+    }
+    if (!m_database.transaction()) {
+        setLastError(m_database.lastError().text());
+        return false;
+    }
+
+    QSqlQuery linkQuery(m_database);
+    if (!linkQuery.prepare(QStringLiteral("INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?, ?)"))) {
+        setLastError(linkQuery.lastError().text());
+        m_database.rollback();
+        return false;
+    }
+
+    for (const QString &tagName : tagNames) {
+        const int tagId = tagIdForName(tagName);
+        if (tagId <= 0) {
+            m_database.rollback();
+            return false;
+        }
+        for (const int mediaId : normalizedIds) {
+            linkQuery.bindValue(0, mediaId);
+            linkQuery.bindValue(1, tagId);
+            if (!linkQuery.exec()) {
+                setLastError(linkQuery.lastError().text());
+                m_database.rollback();
+                return false;
+            }
+        }
+    }
+
+    if (!m_database.commit()) {
+        setLastError(m_database.lastError().text());
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+bool MediaRepository::removeTagsFromMedia(const QVector<int> &mediaIds, const QStringList &tags)
+{
+    const QVector<int> normalizedIds = uniquePositiveIds(mediaIds);
+    if (!ensureOpen()) {
+        return false;
+    }
+    const QVector<int> tagIds = tagIdsForNames(tags);
+    if (!m_lastError.isEmpty()) {
+        return false;
+    }
+    if (normalizedIds.isEmpty() || tagIds.isEmpty()) {
+        m_lastError.clear();
+        return true;
+    }
+    if (!m_database.transaction()) {
+        setLastError(m_database.lastError().text());
+        return false;
+    }
+
+    constexpr int MediaChunkSize = 700;
+    constexpr int TagChunkSize = 200;
+    const int mediaCount = static_cast<int>(normalizedIds.size());
+    const int tagCount = static_cast<int>(tagIds.size());
+    for (int mediaOffset = 0; mediaOffset < mediaCount; mediaOffset += MediaChunkSize) {
+        const int mediaChunkSize = std::min(MediaChunkSize, mediaCount - mediaOffset);
+        for (int tagOffset = 0; tagOffset < tagCount; tagOffset += TagChunkSize) {
+            const int tagChunkSize = std::min(TagChunkSize, tagCount - tagOffset);
+            QSqlQuery query(m_database);
+            query.prepare(QStringLiteral("DELETE FROM media_tags WHERE media_id IN (%1) AND tag_id IN (%2)")
+                .arg(placeholdersForCount(mediaChunkSize), placeholdersForCount(tagChunkSize)));
+            for (int index = 0; index < mediaChunkSize; ++index) {
+                query.addBindValue(normalizedIds.at(mediaOffset + index));
+            }
+            for (int index = 0; index < tagChunkSize; ++index) {
+                query.addBindValue(tagIds.at(tagOffset + index));
+            }
+            if (!query.exec()) {
+                setLastError(query.lastError().text());
+                m_database.rollback();
+                return false;
+            }
+        }
+    }
+
+    if (!m_database.commit()) {
+        setLastError(m_database.lastError().text());
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+bool MediaRepository::setMediaReviewStatusBatch(const QVector<int> &mediaIds, const QString &reviewStatus)
+{
+    if (!isAllowedReviewStatus(reviewStatus)) {
+        setLastError(QStringLiteral("Invalid review status."));
+        return false;
+    }
+    const QVector<int> normalizedIds = uniquePositiveIds(mediaIds);
+    if (normalizedIds.isEmpty()) {
+        m_lastError.clear();
+        return true;
+    }
+    if (!ensureOpen()) {
+        return false;
+    }
+    if (!m_database.transaction()) {
+        setLastError(m_database.lastError().text());
+        return false;
+    }
+
+    constexpr int ChunkSize = 900;
+    const int mediaCount = static_cast<int>(normalizedIds.size());
+    for (int offset = 0; offset < mediaCount; offset += ChunkSize) {
+        const int chunkSize = std::min(ChunkSize, mediaCount - offset);
+        QSqlQuery query(m_database);
+        query.prepare(QStringLiteral("UPDATE media_files SET review_status = ?, updated_at = datetime('now') WHERE id IN (%1)")
+            .arg(placeholdersForCount(chunkSize)));
+        query.addBindValue(reviewStatus);
+        for (int index = 0; index < chunkSize; ++index) {
+            query.addBindValue(normalizedIds.at(offset + index));
+        }
+        if (!query.exec()) {
+            setLastError(query.lastError().text());
+            m_database.rollback();
+            return false;
+        }
+    }
+
+    if (!m_database.commit()) {
+        setLastError(m_database.lastError().text());
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+bool MediaRepository::setMediaRatingBatch(const QVector<int> &mediaIds, int rating)
+{
+    if (rating < 0 || rating > 5) {
+        setLastError(QStringLiteral("Rating must be between 0 and 5."));
+        return false;
+    }
+    const QVector<int> normalizedIds = uniquePositiveIds(mediaIds);
+    if (normalizedIds.isEmpty()) {
+        m_lastError.clear();
+        return true;
+    }
+    if (!ensureOpen()) {
+        return false;
+    }
+    if (!m_database.transaction()) {
+        setLastError(m_database.lastError().text());
+        return false;
+    }
+
+    constexpr int ChunkSize = 900;
+    const int mediaCount = static_cast<int>(normalizedIds.size());
+    for (int offset = 0; offset < mediaCount; offset += ChunkSize) {
+        const int chunkSize = std::min(ChunkSize, mediaCount - offset);
+        QSqlQuery query(m_database);
+        query.prepare(QStringLiteral("UPDATE media_files SET rating = ?, updated_at = datetime('now') WHERE id IN (%1)")
+            .arg(placeholdersForCount(chunkSize)));
+        query.addBindValue(rating);
+        for (int index = 0; index < chunkSize; ++index) {
+            query.addBindValue(normalizedIds.at(offset + index));
+        }
+        if (!query.exec()) {
+            setLastError(query.lastError().text());
+            m_database.rollback();
+            return false;
+        }
+    }
+
+    if (!m_database.commit()) {
+        setLastError(m_database.lastError().text());
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
 QString MediaRepository::lastError() const
 {
     return m_lastError;
@@ -1223,6 +1507,42 @@ QHash<int, QStringList> MediaRepository::tagsByMediaIds(const QVector<int> &medi
         *ok = true;
     }
     return tags;
+}
+
+QVector<int> MediaRepository::tagIdsForNames(const QStringList &tagNames)
+{
+    QVector<int> tagIds;
+    const QStringList normalized = normalizedTags(tagNames);
+    if (normalized.isEmpty()) {
+        m_lastError.clear();
+        return tagIds;
+    }
+
+    QSet<int> seen;
+    QSqlQuery query(m_database);
+    if (!query.prepare(QStringLiteral("SELECT id FROM tags WHERE name = ? COLLATE NOCASE LIMIT 1"))) {
+        setLastError(query.lastError().text());
+        return {};
+    }
+
+    for (const QString &tagName : normalized) {
+        query.bindValue(0, tagName);
+        if (!query.exec()) {
+            setLastError(query.lastError().text());
+            return {};
+        }
+        if (query.next()) {
+            const int tagId = query.value(0).toInt();
+            if (tagId > 0 && !seen.contains(tagId)) {
+                seen.insert(tagId);
+                tagIds.append(tagId);
+            }
+        }
+        query.finish();
+    }
+
+    m_lastError.clear();
+    return tagIds;
 }
 
 int MediaRepository::tagIdForName(const QString &tagName)

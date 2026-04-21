@@ -4,6 +4,7 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QSet>
 #include <QVariantMap>
 
 class MediaLibraryModel : public QAbstractListModel
@@ -34,7 +35,8 @@ public:
         IsFavoriteRole,
         IsDeleteCandidateRole,
         LastPositionMsRole,
-        LastPlayedAtRole
+        LastPlayedAtRole,
+        IsSelectedRole
     };
 
     explicit MediaLibraryModel(QObject *parent = nullptr);
@@ -46,9 +48,11 @@ public:
     Q_INVOKABLE QVariantMap get(int row) const;
     Q_INVOKABLE int mediaIdAt(int row) const;
     Q_INVOKABLE int indexOfId(int mediaId) const;
+    Q_INVOKABLE bool isSelected(int row) const;
 
     MediaLibraryItem itemAt(int row) const;
     void setItems(QVector<MediaLibraryItem> items);
+    void setSelectedMediaIds(const QVector<int> &mediaIds);
     bool replaceItem(int mediaId, const MediaLibraryItem &item);
     bool setFavorite(int mediaId, bool enabled);
     bool setDeleteCandidate(int mediaId, bool enabled);
@@ -62,4 +66,5 @@ private:
 
     QVector<MediaLibraryItem> m_items;
     QHash<int, int> m_rowById;
+    QSet<int> m_selectedIds;
 };

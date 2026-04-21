@@ -24,6 +24,7 @@ public:
     QVector<MediaFile> fetchMediaFiles() override;
     QVector<MediaFile> fetchMediaFiles(const MediaLibraryQuery &query) override;
     MediaFile fetchMediaFileById(int mediaId) override;
+    QStringList fetchTagNames() override;
     QVector<MediaLibraryItem> fetchLibraryItems() override;
     QVector<MediaLibraryItem> fetchLibraryItems(const MediaLibraryQuery &query) override;
     MediaLibraryItem fetchMediaById(int mediaId) override;
@@ -44,12 +45,17 @@ public:
     bool setMediaThumbnailPath(int mediaId, const QString &imagePath) override;
     QVector<ThumbnailBackfillItem> fetchThumbnailBackfillItems() override;
     QString lastError() const override;
+    bool addTagsToMedia(const QVector<int> &mediaIds, const QStringList &tags) override;
+    bool removeTagsFromMedia(const QVector<int> &mediaIds, const QStringList &tags) override;
+    bool setMediaReviewStatusBatch(const QVector<int> &mediaIds, const QString &reviewStatus) override;
+    bool setMediaRatingBatch(const QVector<int> &mediaIds, int rating) override;
 
 private:
     bool upsertScanRoot(const QString &rootPath);
     bool prepareMediaFileUpsert(QSqlQuery *query);
     bool upsertMediaFile(QSqlQuery *query, const ScannedMediaFile &file);
     QHash<int, QStringList> tagsByMediaIds(const QVector<int> &mediaIds, bool *ok);
+    QVector<int> tagIdsForNames(const QStringList &tagNames);
     int tagIdForName(const QString &tagName);
     bool ensureOpen();
     void setLastError(const QString &error);

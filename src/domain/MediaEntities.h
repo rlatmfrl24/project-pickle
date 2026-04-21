@@ -37,6 +37,43 @@ struct FileRenameResult {
     bool succeeded = false;
 };
 
+struct BatchRenameRule {
+    QString prefix;
+    QString suffix;
+    bool numberingEnabled = false;
+    int numberStart = 1;
+    int numberPadding = 2;
+};
+
+struct BatchRenamePreviewItem {
+    int mediaId = 0;
+    QString currentName;
+    QString currentPath;
+    QString newBaseName;
+    QString newName;
+    QString newPath;
+    QString status;
+    bool runnable = false;
+    bool succeeded = false;
+};
+
+struct BatchRenamePreviewResult {
+    QVector<BatchRenamePreviewItem> items;
+    QString status;
+    int runnableCount = 0;
+    int invalidCount = 0;
+    bool succeeded = false;
+};
+
+struct BatchRenameExecutionResult {
+    QVector<BatchRenamePreviewItem> items;
+    QString status;
+    int successCount = 0;
+    int failureCount = 0;
+    int skippedCount = 0;
+    bool succeeded = false;
+};
+
 struct MediaLibraryItem {
     int id = 0;
     QString fileName;

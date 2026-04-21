@@ -31,7 +31,30 @@ MediaLibrarySortKey sortKeyFromString(const QString &sortKey)
     if (normalized == QStringLiteral("modified")) {
         return MediaLibrarySortKey::Modified;
     }
+    if (normalized == QStringLiteral("lastplayed")) {
+        return MediaLibrarySortKey::LastPlayed;
+    }
     return MediaLibrarySortKey::Name;
+}
+
+QString normalizedViewModeName(const QString &viewMode)
+{
+    const QString normalized = viewMode.trimmed().toLower();
+    if (normalized == QStringLiteral("unreviewed")) return QStringLiteral("unreviewed");
+    if (normalized == QStringLiteral("favorites")) return QStringLiteral("favorites");
+    if (normalized == QStringLiteral("deletecandidates")) return QStringLiteral("deleteCandidates");
+    if (normalized == QStringLiteral("recent")) return QStringLiteral("recent");
+    return QStringLiteral("all");
+}
+
+MediaLibraryViewMode viewModeFromString(const QString &viewMode)
+{
+    const QString normalized = normalizedViewModeName(viewMode);
+    if (normalized == QStringLiteral("unreviewed")) return MediaLibraryViewMode::Unreviewed;
+    if (normalized == QStringLiteral("favorites")) return MediaLibraryViewMode::Favorites;
+    if (normalized == QStringLiteral("deleteCandidates")) return MediaLibraryViewMode::DeleteCandidates;
+    if (normalized == QStringLiteral("recent")) return MediaLibraryViewMode::Recent;
+    return MediaLibraryViewMode::All;
 }
 
 bool mediaNeedsMetadata(const QVariantMap &media)
@@ -72,6 +95,7 @@ void removeMediaId(std::vector<int> *mediaIds, int mediaId)
     }
     mediaIds->erase(std::remove(mediaIds->begin(), mediaIds->end(), mediaId), mediaIds->end());
 }
+
 }
 
 AppController::AppController(
@@ -98,6 +122,11 @@ AppController::AppController(
     m_showThumbnails = settings.showThumbnails;
     m_selectedIndex = (!m_mediaLibraryModel || m_mediaLibraryModel->rowCount() == 0) ? -1 : 0;
     m_selectedMediaId = m_selectedIndex >= 0 ? m_mediaLibraryModel->mediaIdAt(m_selectedIndex) : -1;
+    if (m_selectedMediaId > 0) {
+        m_selectedMediaIds.append(m_selectedMediaId);
+        m_selectionAnchorMediaId = m_selectedMediaId;
+        m_mediaLibraryModel->setSelectedMediaIds(m_selectedMediaIds);
+    }
     m_libraryStatus = QStringLiteral("Showing %1 item(s)").arg(m_mediaLibraryModel ? m_mediaLibraryModel->rowCount() : 0);
 
     connect(m_scanController.get(), &ScanController::scanRejected, this, [this](const QString &status, const QString &root) { setScanState(false, status, root); });
@@ -122,6 +151,7 @@ AppController::~AppController()
 {
     m_shuttingDown = true;
     m_autoMetadataQueued = false;
+    if (m_scanController) disconnect(m_scanController.get(), nullptr, this, nullptr); if (m_libraryController) disconnect(m_libraryController.get(), nullptr, this, nullptr); if (m_metadataController) disconnect(m_metadataController.get(), nullptr, this, nullptr); if (m_snapshotController) disconnect(m_snapshotController.get(), nullptr, this, nullptr); if (m_thumbnailController) disconnect(m_thumbnailController.get(), nullptr, this, nullptr);
     cancelActiveWork();
     if (m_scanController) m_scanController->waitForFinished();
     if (m_libraryController) { m_libraryController->cancelPending(); m_libraryController->waitForFinished(); }
@@ -143,6 +173,9 @@ int AppController::scanFoundCount() const { return m_scanFoundCount; }
 QString AppController::scanProgressText() const { return m_scanProgressText; }
 bool AppController::scanCancelAvailable() const { return m_scanInProgress && m_scanController && m_scanController->cancelAvailable(); }
 QString AppController::librarySearchText() const { return m_librarySearchText; }
+QString AppController::libraryViewMode() const { return m_libraryViewMode; }
+QString AppController::libraryTagFilter() const { return m_libraryTagFilter; }
+QStringList AppController::availableTags() const { return m_availableTags; }
 QString AppController::librarySortKey() const { return m_librarySortKey; }
 bool AppController::librarySortAscending() const { return m_librarySortAscending; }
 bool AppController::showThumbnails() const { return m_showThumbnails; }
@@ -165,19 +198,6 @@ bool AppController::playerMuted() const { return m_settingsController->settings(
 QUrl AppController::lastOpenFolderUrl() const { const QString path = m_settingsController->settings().lastOpenFolder; return path.isEmpty() ? QUrl() : QUrl::fromLocalFile(path); }
 QVariantList AppController::workEvents() const { return m_workEventLog->events(); }
 
-void AppController::setSelectedIndex(int selectedIndex)
-{
-    if (!m_mediaLibraryModel || m_mediaLibraryModel->rowCount() == 0) selectedIndex = -1;
-    else if (selectedIndex < 0 || selectedIndex >= m_mediaLibraryModel->rowCount()) return;
-    if (m_selectedIndex == selectedIndex) return;
-    m_selectedIndex = selectedIndex;
-    m_selectedMediaId = selectedIndex >= 0 ? m_mediaLibraryModel->mediaIdAt(selectedIndex) : -1;
-    emit selectedIndexChanged();
-    emit selectedMediaChanged();
-    refreshSelectedSnapshots();
-    maybeStartAutoMetadataExtraction();
-}
-
 void AppController::setDatabaseState(bool ready, const QString &status, const QString &path)
 {
     if (m_databaseReady == ready && m_databaseStatus == status && m_databasePath == path) return;
@@ -185,12 +205,14 @@ void AppController::setDatabaseState(bool ready, const QString &status, const QS
     m_databaseStatus = status;
     m_databasePath = path;
     emit databaseStateChanged();
+    refreshAvailableTags();
     refreshSelectedSnapshots();
     maybeStartAutoMetadataExtraction();
 }
 
-void AppController::selectIndex(int index) { setSelectedIndex(index); }
 void AppController::setLibrarySearchText(const QString &searchText) { if (m_librarySearchText == searchText) return; m_librarySearchText = searchText; emit libraryStateChanged(); requestLibraryReload(150); }
+void AppController::setLibraryViewMode(const QString &viewMode) { const QString normalized = normalizedViewModeName(viewMode); if (m_libraryViewMode == normalized) return; m_libraryViewMode = normalized; if (normalized == QStringLiteral("recent")) { m_librarySortKey = QStringLiteral("lastPlayed"); m_librarySortAscending = false; } emit libraryStateChanged(); requestLibraryReload(0); }
+void AppController::setLibraryTagFilter(const QString &tagFilter) { const QString normalized = tagFilter.trimmed(); if (m_libraryTagFilter == normalized) return; m_libraryTagFilter = normalized; emit libraryStateChanged(); requestLibraryReload(0); }
 void AppController::setLibrarySortKey(const QString &sortKey) { emitSettingsUpdate(m_settingsController->setSortKey(sortKey)); }
 void AppController::setLibrarySortAscending(bool ascending) { emitSettingsUpdate(m_settingsController->setSortAscending(ascending)); }
 void AppController::setShowThumbnails(bool showThumbnails) { emitSettingsUpdate(m_settingsController->setShowThumbnails(showThumbnails)); }
@@ -199,12 +221,11 @@ void AppController::setPlayerMuted(bool muted) { emitSettingsUpdate(m_settingsCo
 void AppController::startDirectoryScan(const QUrl &folderUrl) { startDirectoryScanPath(m_diagnosticsController->localPathFromUrl(folderUrl)); }
 void AppController::rescanCurrentRoot() { startDirectoryScanPath(m_currentScanRoot); }
 void AppController::refreshSelectedMetadata() { startMetadataExtraction(selectedMedia(), true); }
-void AppController::saveSelectedMediaDetails(const QString &description, const QString &reviewStatus, int rating, const QVariantList &tags) { const MediaActionResult r = m_mediaActionsController->saveDetails(selectedMedia(), description, reviewStatus, rating, tags, m_databaseReady, hasActiveBackgroundWork()); if (r.selectedMediaChanged) emit selectedMediaChanged(); if (r.libraryReloadRequested) requestLibraryReload(0); setDetailStatus(r.status); }
+void AppController::saveSelectedMediaDetails(const QString &description, const QString &reviewStatus, int rating, const QVariantList &tags) { const MediaActionResult r = m_mediaActionsController->saveDetails(selectedMedia(), description, reviewStatus, rating, tags, m_databaseReady, hasActiveBackgroundWork()); if (r.selectedMediaChanged) emit selectedMediaChanged(); if (r.libraryReloadRequested) { refreshAvailableTags(); requestLibraryReload(0); } setDetailStatus(r.status); }
 void AppController::renameSelectedMedia(const QString &newBaseName) { const MediaActionResult r = m_mediaActionsController->renameMedia(selectedMedia(), newBaseName, m_databaseReady, hasActiveBackgroundWork()); if (r.selectedMediaChanged) emit selectedMediaChanged(); if (r.libraryReloadRequested) requestLibraryReload(0); setFileActionStatus(r.status); }
-void AppController::setSelectedFavorite(bool enabled) { const MediaActionResult r = m_mediaActionsController->setFavorite(selectedMedia(), enabled, m_databaseReady, hasActiveBackgroundWork()); if (r.selectedMediaChanged) emit selectedMediaChanged(); setFileActionStatus(r.status); }
-void AppController::setSelectedDeleteCandidate(bool enabled) { const MediaActionResult r = m_mediaActionsController->setDeleteCandidate(selectedMedia(), enabled, m_databaseReady, hasActiveBackgroundWork()); if (r.selectedMediaChanged) emit selectedMediaChanged(); setFileActionStatus(r.status); }
-void AppController::saveSelectedPlaybackPosition(qint64 positionMs) { const MediaActionResult r = m_mediaActionsController->savePlaybackPosition(selectedMedia(), positionMs, m_databaseReady); if (r.selectedMediaChanged) emit selectedMediaChanged(); if (!r.status.isEmpty()) setFileActionStatus(r.status); else if (m_fileActionStatus.startsWith(QStringLiteral("Playback position save failed"))) setFileActionStatus({}); }
-
+void AppController::setSelectedFavorite(bool enabled) { const MediaActionResult r = m_mediaActionsController->setFavorite(selectedMedia(), enabled, m_databaseReady, hasActiveBackgroundWork()); if (r.selectedMediaChanged) { emit selectedMediaChanged(); if (m_libraryViewMode == QStringLiteral("favorites")) requestLibraryReload(0); } setFileActionStatus(r.status); }
+void AppController::setSelectedDeleteCandidate(bool enabled) { const MediaActionResult r = m_mediaActionsController->setDeleteCandidate(selectedMedia(), enabled, m_databaseReady, hasActiveBackgroundWork()); if (r.selectedMediaChanged) { emit selectedMediaChanged(); if (m_libraryViewMode == QStringLiteral("deleteCandidates")) requestLibraryReload(0); } setFileActionStatus(r.status); }
+void AppController::saveSelectedPlaybackPosition(qint64 positionMs) { const MediaActionResult r = m_mediaActionsController->savePlaybackPosition(selectedMedia(), positionMs, m_databaseReady); if (r.selectedMediaChanged) { emit selectedMediaChanged(); if (m_libraryViewMode == QStringLiteral("recent")) requestLibraryReload(0); } if (!r.status.isEmpty()) setFileActionStatus(r.status); else if (m_fileActionStatus.startsWith(QStringLiteral("Playback position save failed"))) setFileActionStatus({}); }
 void AppController::cancelScan() { if (m_scanInProgress && m_scanController && m_scanController->cancel()) setScanState(true, QStringLiteral("Canceling scan..."), m_currentScanRoot); }
 void AppController::cancelMetadataRefresh() { if (m_metadataInProgress && m_metadataController && m_metadataController->cancel()) setMetadataState(true, QStringLiteral("Canceling metadata...")); }
 void AppController::cancelSnapshotCapture() { if (m_snapshotInProgress && m_snapshotController && m_snapshotController->cancel()) setSnapshotState(true, QStringLiteral("Canceling snapshot...")); }
@@ -246,11 +267,12 @@ void AppController::resetLibrary()
     if (hasActiveBackgroundWork()) { setLibraryStatus(QStringLiteral("Wait for active work to finish before resetting the library.")); return; }
     const LibraryResetResult result = m_mediaActionsController->resetLibrary();
     if (!result.succeeded) { setLibraryStatus(result.libraryStatus); return; }
-    m_selectedIndex = -1; m_selectedMediaId = -1; m_autoMetadataQueued = false; m_currentScanRoot.clear(); m_autoMetadataFailures.clear(); m_autoMetadataAttempted.clear();
-    m_selectedSnapshots.clear(); m_scanVisitedCount = 0; m_scanFoundCount = 0; m_scanProgressText.clear();
+    m_selectedIndex = -1; m_selectedMediaId = -1; m_selectedMediaIds.clear(); m_selectionAnchorMediaId = -1; m_autoMetadataQueued = false; m_currentScanRoot.clear(); m_autoMetadataFailures.clear(); m_autoMetadataAttempted.clear();
+    m_selectedSnapshots.clear(); m_availableTags.clear(); m_libraryTagFilter.clear(); m_scanVisitedCount = 0; m_scanFoundCount = 0; m_scanProgressText.clear();
     if (m_libraryController) m_libraryController->cancelPending();
     if (m_scanController) m_scanController->clearCurrentRoot();
-    emit selectedIndexChanged(); emit selectedMediaChanged();
+    m_mediaLibraryModel->setSelectedMediaIds({});
+    emit selectedIndexChanged(); emit selectedMediaChanged(); emit selectionStateChanged();
     setScanState(false, QStringLiteral("No scan root"), {});
     setMetadataState(false, {});
     setSnapshotState(false, result.snapshotStatus);
@@ -367,6 +389,14 @@ void AppController::refreshSelectedSnapshots()
     emit snapshotStateChanged();
 }
 
+void AppController::refreshAvailableTags()
+{
+    const QStringList nextTags = (m_databaseReady && m_mediaRepository) ? m_mediaRepository->fetchTagNames() : QStringList {};
+    if (m_availableTags == nextTags) return;
+    m_availableTags = nextTags;
+    emit libraryStateChanged();
+}
+
 bool AppController::hasActiveBackgroundWork() const
 {
     return m_scanInProgress || m_metadataInProgress || m_snapshotInProgress || m_thumbnailMaintenanceInProgress
@@ -383,15 +413,14 @@ bool AppController::applyLibraryItems(QVector<MediaLibraryItem> items) { if (!m_
 
 void AppController::syncSelectionAfterLibraryChange()
 {
-    int nextIndex = m_mediaLibraryModel && m_selectedMediaId > 0 ? m_mediaLibraryModel->indexOfId(m_selectedMediaId) : m_selectedIndex;
-    if (!m_mediaLibraryModel || m_mediaLibraryModel->rowCount() == 0) nextIndex = -1;
-    else if (nextIndex < 0 || nextIndex >= m_mediaLibraryModel->rowCount()) nextIndex = 0;
-    const int nextId = nextIndex >= 0 ? m_mediaLibraryModel->mediaIdAt(nextIndex) : -1;
-    if (m_selectedIndex != nextIndex) { m_selectedIndex = nextIndex; emit selectedIndexChanged(); }
-    m_selectedMediaId = nextId;
-    emit selectedMediaChanged();
-    refreshSelectedSnapshots();
-    maybeStartAutoMetadataExtraction();
+    QVector<int> nextIds = visibleMediaIds(m_selectedMediaIds);
+    int primaryId = m_selectedMediaId;
+    if (nextIds.isEmpty() && m_mediaLibraryModel && m_mediaLibraryModel->rowCount() > 0) {
+        const int preservedIndex = primaryId > 0 ? m_mediaLibraryModel->indexOfId(primaryId) : -1;
+        primaryId = m_mediaLibraryModel->mediaIdAt(preservedIndex >= 0 ? preservedIndex : 0);
+        nextIds.append(primaryId);
+    }
+    applySelection(nextIds, primaryId, m_selectionAnchorMediaId);
 }
 
 void AppController::setScanState(bool inProgress, const QString &status, const QString &root) { if (m_scanInProgress == inProgress && m_scanStatus == status && m_currentScanRoot == root) return; m_scanInProgress = inProgress; m_scanStatus = status; m_currentScanRoot = root; emit scanStateChanged(); if (!status.isEmpty()) recordWorkEvent(QStringLiteral("scan"), status, statusLooksLikeWarning(status)); }
@@ -407,7 +436,7 @@ void AppController::setToolsStatus(const QString &status) { if (m_settingsContro
 QString AppController::ffprobeProgram() const { return m_settingsController->ffprobeProgram(); }
 QString AppController::ffmpegProgram() const { return m_settingsController->ffmpegProgram(); }
 void AppController::recordWorkEvent(const QString &kind, const QString &message, bool warning) { if (m_workEventLog->append(kind, message, warning)) emit workEventsChanged(); }
-MediaLibraryQuery AppController::libraryQuery() const { MediaLibraryQuery query; query.searchText = m_librarySearchText; query.sortKey = sortKeyFromString(m_librarySortKey); query.ascending = m_librarySortAscending; return query; }
+MediaLibraryQuery AppController::libraryQuery() const { MediaLibraryQuery query; query.searchText = m_librarySearchText; query.tagFilter = m_libraryTagFilter; query.viewMode = viewModeFromString(m_libraryViewMode); query.sortKey = sortKeyFromString(m_librarySortKey); query.ascending = m_librarySortAscending; return query; }
 
 void AppController::emitSettingsUpdate(const SettingsUpdateResult &result)
 {

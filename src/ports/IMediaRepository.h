@@ -39,4 +39,9 @@ public:
     virtual bool setMediaThumbnailPath(int mediaId, const QString &imagePath) = 0;
     virtual QVector<ThumbnailBackfillItem> fetchThumbnailBackfillItems() = 0;
     virtual QString lastError() const = 0;
+    virtual QStringList fetchTagNames() { return {}; }
+    virtual bool addTagsToMedia(const QVector<int> &, const QStringList &) { return false; }
+    virtual bool removeTagsFromMedia(const QVector<int> &, const QStringList &) { return false; }
+    virtual bool setMediaReviewStatusBatch(const QVector<int> &, const QString &) { return false; }
+    virtual bool setMediaRatingBatch(const QVector<int> &, int) { return false; }
 };

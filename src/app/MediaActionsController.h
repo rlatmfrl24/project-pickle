@@ -49,6 +49,10 @@ public:
     MediaActionResult setFavorite(const QVariantMap &media, bool enabled, bool databaseReady, bool hasActiveWork);
     MediaActionResult setDeleteCandidate(const QVariantMap &media, bool enabled, bool databaseReady, bool hasActiveWork);
     MediaActionResult savePlaybackPosition(const QVariantMap &media, qint64 positionMs, bool databaseReady);
+    MediaActionResult addTagsToMedia(const QVector<int> &mediaIds, const QVariantList &tags, bool databaseReady, bool hasActiveWork);
+    MediaActionResult removeTagsFromMedia(const QVector<int> &mediaIds, const QVariantList &tags, bool databaseReady, bool hasActiveWork);
+    MediaActionResult setReviewStatusForMedia(const QVector<int> &mediaIds, const QString &reviewStatus, bool databaseReady, bool hasActiveWork);
+    MediaActionResult setRatingForMedia(const QVector<int> &mediaIds, int rating, bool databaseReady, bool hasActiveWork);
     MediaActionResult refreshMediaFromRepository(int mediaId);
     MediaActionResult applySnapshotResult(const SnapshotCaptureResult &result);
     MediaActionResult applyThumbnailMaintenanceResult(const QVector<ThumbnailGenerationResult> &results, bool canceled);
