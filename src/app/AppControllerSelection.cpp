@@ -42,6 +42,17 @@ void AppController::setSelectedIndex(int selectedIndex)
 
 void AppController::selectIndex(int index) { setSelectedIndex(index); }
 
+bool AppController::selectRelative(int offset)
+{
+    if (!m_mediaLibraryModel || m_mediaLibraryModel->rowCount() == 0 || offset == 0) return false;
+    const int rowCount = m_mediaLibraryModel->rowCount();
+    const int currentIndex = m_selectedIndex >= 0 ? m_selectedIndex : (offset > 0 ? -1 : rowCount);
+    const int nextIndex = std::clamp(currentIndex + offset, 0, rowCount - 1);
+    if (nextIndex == m_selectedIndex) return false;
+    setSelectedIndex(nextIndex);
+    return true;
+}
+
 void AppController::selectRangeOrToggle(int index, bool toggle, bool range)
 {
     if (!m_mediaLibraryModel || index < 0 || index >= m_mediaLibraryModel->rowCount()) return;

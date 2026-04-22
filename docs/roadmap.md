@@ -172,71 +172,34 @@
 - 파일 내용 기반 자동 이름 추천
 - 실제 삭제 또는 휴지통 이동
 
----
-
-## M25. 중복 파일 탐지
-
-### 목표
-라이브러리 내 중복 후보를 찾아 정리 후보로 표시할 수 있게 한다.
-
-### 범위
-- 파일 크기와 해시 기반 중복 후보 그룹 생성
-- 기존 `hash_value` 컬럼 활용 또는 필요한 migration 추가
-- 중복 그룹을 DB에 저장하거나 repository query 결과로 노출
-- 중복 후보 스마트 뷰 또는 필터 추가
-- 후보 항목은 삭제하지 않고 삭제후보 표시까지만 지원
-
-### 완료 기준
-- 동일 크기/동일 해시 파일을 중복 후보 그룹으로 볼 수 있다.
-- 중복 후보 그룹에서 항목별 경로, 크기, 수정일, 평점/상태를 비교할 수 있다.
-- 사용자가 중복 후보를 삭제후보로 표시할 수 있다.
-- 스캔 재실행 후 중복 후보 결과가 갱신된다.
-- 대량 라이브러리에서 불필요한 전체 해시 계산을 피하는 단계적 계산 전략이 문서화된다.
-
-### 제외
-- 실제 파일 삭제
-- 내용 유사도 기반 중복 탐지
-- 영상 프레임 기반 중복/유사 영상 탐지
-
----
-
-## M26. 손상/재생 불가 파일 탐지
-
-### 목표
-메타데이터 추출 또는 재생에 문제가 있는 파일을 식별하고 필터 가능한 상태로 관리한다.
-
-### 범위
-- ffprobe 실패, 메타데이터 불완전, Qt Multimedia 재생 오류를 문제 상태로 기록
-- 손상 의심, 메타데이터 실패, 재생 실패를 구분
-- 문제 파일 스마트 뷰 또는 필터 추가
-- 수동 재검사 액션 제공
-- 진단 리포트에 최근 문제 파일 처리 결과 포함
-
-### 완료 기준
-- ffprobe 실패 파일이 문제 상태로 표시된다.
-- 재생 실패 파일이 문제 상태로 표시된다.
-- 문제 유형별 필터가 동작한다.
-- 사용자가 문제 파일을 다시 검사할 수 있다.
-- 실패 원인은 조용히 무시되지 않고 status/log/diagnostics 중 적어도 한 경로에 남는다.
-
-### 제외
-- 파일 복구 기능
-- 코덱 설치 안내 자동화
-- 외부 네트워크 기반 진단
-
----
-
 ## M27. 키보드 중심 검토 모드
 
 ### 목표
 마우스 사용을 줄이고 키보드만으로 빠르게 재생, 평가, 분류, 이동할 수 있는 검토 모드를 제공한다.
 
 ### 범위
-- 다음/이전 항목 이동 단축키
+- session-only 빠른 검토 모드와 헤더 상태 표시 추가
+- 다음/이전 항목 이동 단축키 추가. 이동은 선택만 변경하고 자동 재생하지 않는다.
 - 평점, 검토 상태, 즐겨찾기, 삭제후보 단축키
 - 재생 토글, 앞/뒤 시크, 스냅샷 단축키 정리
 - 빠른 검토 모드 진입/해제 UI 상태 표시
 - 텍스트 입력, rename dialog, 태그 입력과 충돌하지 않는 focus 규칙 정리
+
+### 단축키
+
+| 동작 | 키 |
+| --- | --- |
+| 검토 모드 토글 | Ctrl+R |
+| 이전 항목 | Up, K |
+| 다음 항목 | Down, J |
+| 재생/일시정지 | Space |
+| 5초 뒤로/앞으로 | Left/H, Right/L |
+| 평점 설정 | 1-5 |
+| 평점 초기화 | 0 |
+| 검토 상태 | U=unreviewed, R=reviewed, N=needs_followup |
+| 즐겨찾기 토글 | F |
+| 삭제후보 토글 | D |
+| 스냅샷 | S |
 
 ### 완료 기준
 - 사용자가 키보드로 항목 이동, 재생, 평점, 상태 변경을 수행할 수 있다.
@@ -245,6 +208,13 @@
 - 검토 모드 상태가 UI에 명확히 표시된다.
 - 주요 단축키 흐름에 대한 수동 검증 체크리스트가 문서화된다.
 
+### 수동 검증 체크리스트
+- 헤더 버튼과 Ctrl+R로 검토 모드를 켜고 끌 수 있다.
+- Up/Down/K/J로 선택만 이동하고 재생은 자동 시작되지 않는다.
+- Space, Left/Right, H/L이 플레이어 제어와 충돌하지 않는다.
+- 0-5, U/R/N, F, D, S가 현재 primary 항목에만 적용된다.
+- 검색, 태그, rename, batch rename, settings 입력 중에는 검토 단축키가 실행되지 않는다.
+
 ### 제외
 - 사용자 정의 단축키 편집기
 - 게임패드/리모컨 입력
@@ -252,7 +222,60 @@
 
 ---
 
-## M28 이후 후속 후보
+## M28. UI As-Is 캡처 및 가시성/사용성 개선
+
+### 목표
+현재 UI를 Figma에 As-Is 기준점으로 보존하고, 실제 화면 기준으로 가시성/사용성 개선 범위를 정리한다.
+
+### 범위
+- Figma 새 파일 `Pickle UI As-Is Audit - 2026-04-22`에 `As-Is` 페이지 생성
+- synthetic/demo 데이터 기반으로 현재 QML UI 주요 상태 20개 캡처
+- 캡처 그룹: Main, Library & Detail, Playback, Dialogs, Stress & Responsive
+- 가시성 기준 검토: 대비, 글자 크기, truncation/overflow, 선택/상태 구분, disabled/active 상태, 진행/상태 메시지
+- 사용성 기준 검토: 스캔/필터/검토/일괄 편집/이름 변경 흐름, keyboard focus, dialog 탈출성, destructive action 명확성, 빠른 검토 모드 발견성
+- Figma `Findings` 섹션과 roadmap 후속 마일스톤으로 개선 범위 연결
+
+### Figma 산출물
+- 파일: [Pickle UI As-Is Audit - 2026-04-22](https://www.figma.com/design/uyNQTIi2CaSoi6GqEJhdTg?node-id=3-2)
+- 페이지: `As-Is`
+- 캡처 수: 20
+- 사용자 실제 미디어/개인 라이브러리 경로는 사용하지 않는다.
+- OS-native Folder/File dialog는 platform-owned UI로 기록하고 자동 캡처 범위에서는 제외한다.
+
+### 1차 검토 결과
+- P1 Visibility: Dialog와 일부 Qt Quick Controls가 dark shell 안에서 light/native styling으로 보이며 시각 체계가 섞인다.
+- P1 Usability: 우측 rail에 필터, 리스트, 상태, 상세, batch action이 조밀하게 모여 긴 파일명/태그 처리 여유가 부족하다.
+- P2 Visibility: 재생/반복 액션이 짧은 텍스트 버튼 위주라 빠른 스캔성이 낮고 disabled 상태 구분이 약하다.
+- P2 Usability: Review Mode 상태 표시는 있으나 shortcut scope와 현재 적용 대상 피드백이 더 강해야 한다.
+
+### 완료 기준
+- Figma `As-Is` 페이지에 주요 화면/상태 캡처와 Findings 요약이 존재한다.
+- 캡처 목록이 main workspace, library/detail, playback/review, dialogs, responsive stress를 포함한다.
+- roadmap에 M29-M31 UI 개선 후보가 실행 가능한 단위로 정리된다.
+- M28은 UI 구현 완료가 아니라 As-Is 캡처/감사/후속계획 마일스톤으로 명확히 남는다.
+
+### 수동 검증 체크리스트
+- Figma 파일을 열어 `As-Is / Screenshot Gallery + Findings` 프레임이 보이는지 확인한다.
+- 20개 캡처가 모두 로드되고 깨진 이미지가 없는지 확인한다.
+- 긴 파일명, 긴 태그, 좁은 viewport, batch rename dialog가 검토 가능한 크기로 보이는지 확인한다.
+- Findings 요약이 가시성/사용성 기준으로 구분되어 있는지 확인한다.
+- 후속 구현은 QML 전체 재설계가 아니라 M29-M31 단계별 polish로 진행한다.
+
+### 제외
+- 이번 단계에서 실제 QML UI 수정은 하지 않는다.
+- 디자인 시스템 전면 도입이나 전체 레이아웃 재작성은 하지 않는다.
+- 사용자 개인 미디어 라이브러리를 캡처하지 않는다.
+
+---
+
+## M29 이후 후속 후보
+
+### UI 개선 후보
+- M29 Visibility polish: 대비, spacing, typography, overflow, 상태 표시, light/native dialog styling 정리
+- M30 Usability flow polish: 필터, 검토, batch, rename, focus/keyboard 흐름 정리
+- M31 Visual system 정리: 재사용 UI 토큰/컴포넌트, 반응형 제약, screenshot smoke 기반 회귀 점검
+
+### 기능/품질 후보
 
 - FTS5 기반 검색 전환
 - 실제 샘플 미디어 기반 Qt Multimedia playback smoke test
@@ -270,9 +293,11 @@
 1. M22 스마트 뷰 및 고급 필터
 2. M23 다중 선택 및 일괄 태그
 3. M24 일괄 이름 변경
-4. M25 중복 파일 탐지
-5. M26 손상/재생 불가 파일 탐지
-6. M27 키보드 중심 검토 모드
+4. M27 키보드 중심 검토 모드
+5. M28 UI As-Is 캡처 및 가시성/사용성 개선
+6. M29 Visibility polish
+7. M30 Usability flow polish
+8. M31 Visual system 정리
 
 ---
 

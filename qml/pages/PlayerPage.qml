@@ -12,6 +12,7 @@ Rectangle {
     property alias mediaPlayer: player
     property alias audioOutput: output
     property real pendingRestorePosition: 0
+    property bool reviewShortcutsActive: false
 
     readonly property bool hasSource: playbackController && playbackController.hasSource
     readonly property bool isLoading: player.mediaStatus === MediaPlayer.LoadingMedia
@@ -185,21 +186,21 @@ Rectangle {
     focus: true
 
     Keys.onSpacePressed: function(event) {
-        if (root.canControlPlayback) {
+        if (!root.reviewShortcutsActive && root.canControlPlayback) {
             root.togglePlayback()
             event.accepted = true
         }
     }
 
     Keys.onLeftPressed: function(event) {
-        if (root.canSeek) {
+        if (!root.reviewShortcutsActive && root.canSeek) {
             root.seekBy(-5000)
             event.accepted = true
         }
     }
 
     Keys.onRightPressed: function(event) {
-        if (root.canSeek) {
+        if (!root.reviewShortcutsActive && root.canSeek) {
             root.seekBy(5000)
             event.accepted = true
         }

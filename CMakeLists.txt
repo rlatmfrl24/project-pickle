@@ -19,6 +19,7 @@ set_source_files_properties(qml/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
 set_source_files_properties(qml/components/InfoPanel.qml PROPERTIES QT_RESOURCE_ALIAS components/InfoPanel.qml)
 set_source_files_properties(qml/components/LibraryPanel.qml PROPERTIES QT_RESOURCE_ALIAS components/LibraryPanel.qml)
 set_source_files_properties(qml/components/PlaybackBar.qml PROPERTIES QT_RESOURCE_ALIAS components/PlaybackBar.qml)
+set_source_files_properties(qml/components/ReviewShortcutLayer.qml PROPERTIES QT_RESOURCE_ALIAS components/ReviewShortcutLayer.qml)
 set_source_files_properties(qml/pages/PlayerPage.qml PROPERTIES QT_RESOURCE_ALIAS pages/PlayerPage.qml)
 
 qt_add_library(pickle_domain STATIC
@@ -277,6 +278,7 @@ qt_add_qml_module(apppickle
         qml/components/InfoPanel.qml
         qml/components/LibraryPanel.qml
         qml/components/PlaybackBar.qml
+        qml/components/ReviewShortcutLayer.qml
         qml/pages/PlayerPage.qml
 )
 
@@ -466,6 +468,16 @@ pickle_add_test(m24_batch_rename_test
 )
 
 target_compile_definitions(m24_batch_rename_test
+    PRIVATE PICKLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+
+pickle_add_test(m27_keyboard_review_mode_test
+    tests/M27KeyboardReviewModeTest.cpp
+    pickle_app
+    pickle_test_support
+)
+
+target_compile_definitions(m27_keyboard_review_mode_test
     PRIVATE PICKLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 

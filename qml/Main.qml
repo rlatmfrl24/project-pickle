@@ -16,6 +16,17 @@ ApplicationWindow {
     property var pendingBatchRenameRule: ({})
     property var batchRenamePreview: ({ "items": [], "status": "", "runnableCount": 0 })
     property string diagnosticText: ""
+    property bool quickReviewMode: false
+    readonly property bool reviewShortcutModalBlocked: folderDialog.visible
+        || ffprobeFileDialog.visible
+        || ffmpegFileDialog.visible
+        || resetLibraryDialog.visible
+        || aboutDialog.visible
+        || systemInfoDialog.visible
+        || settingsDialog.visible
+        || diagnosticsDialog.visible
+        || renameDialog.visible
+        || batchRenameDialog.visible
 
     minimumWidth: 960
     minimumHeight: 600
@@ -39,6 +50,19 @@ ApplicationWindow {
         window.appController.selectIndex(index)
         renameNameField.text = window.baseNameForMedia(window.appController.selectedMedia)
         renameDialog.open()
+    }
+
+    function setQuickReviewMode(enabled) {
+        if (window.quickReviewMode === enabled) {
+            return
+        }
+
+        window.quickReviewMode = enabled
+        if (enabled
+                && window.appController.selectedIndex >= 0
+                && window.appController.selectedMediaCount > 1) {
+            window.appController.selectIndex(window.appController.selectedIndex)
+        }
     }
 
     function currentBatchRenameRule() {
@@ -907,6 +931,16 @@ ApplicationWindow {
         }
     }
 
+    Components.ReviewShortcutLayer {
+        id: reviewShortcutLayer
+
+        reviewMode: window.quickReviewMode
+        modalBlocked: window.reviewShortcutModalBlocked
+        appController: window.appController
+        playerPage: playerPage
+        onToggleReviewModeRequested: window.setQuickReviewMode(!window.quickReviewMode)
+    }
+
     header: ToolBar {
         background: Rectangle {
             color: "#151922"
@@ -931,6 +965,23 @@ ApplicationWindow {
                 font.pixelSize: 13
                 Layout.fillWidth: true
                 elide: Text.ElideRight
+            }
+
+            Button {
+                text: qsTr("Review Mode")
+                checkable: true
+                checked: window.quickReviewMode
+                enabled: window.appController.databaseReady && !window.reviewShortcutModalBlocked
+                onClicked: window.setQuickReviewMode(!window.quickReviewMode)
+            }
+
+            Label {
+                text: window.quickReviewMode ? qsTr("Reviewing") : ""
+                visible: window.quickReviewMode
+                color: "#9fc9ff"
+                font.pixelSize: 12
+                elide: Text.ElideRight
+                Layout.maximumWidth: 120
             }
 
             Label {
@@ -1006,6 +1057,7 @@ ApplicationWindow {
                     media: window.appController.selectedMedia
                     playbackController: window.playbackController
                     appController: window.appController
+                    reviewShortcutsActive: window.quickReviewMode
                 }
 
                 Components.PlaybackBar {

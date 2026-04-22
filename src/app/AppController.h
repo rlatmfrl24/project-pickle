@@ -136,6 +136,7 @@ public:
     QVariantList workEvents() const;
 
     Q_INVOKABLE void selectIndex(int index);
+    Q_INVOKABLE bool selectRelative(int offset);
     Q_INVOKABLE void selectRangeOrToggle(int index, bool toggle, bool range);
     Q_INVOKABLE void selectAllVisible();
     Q_INVOKABLE void clearSelection();
